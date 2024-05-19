@@ -68,7 +68,8 @@ class VolvoDataset(Dataset):
         time_series = ts.drop(["Timesteps", "ChassisId_encoded", "gen", "risk_level"], axis = 1).values
         # point_wise labels
         timestep_labels = ts["risk_level"]
-        return time_series , self.risk_encoder.transform(timestep_labels.values.reshape(-1, 1)).todense()
+        labels = self.risk_encoder.transform(timestep_labels.values.reshape(-1, 1)).todense()
+        return torch.Tensor(time_series) , torch.Tensor(labels) 
     
     @staticmethod
     def padding_collate_fn(batch):
@@ -79,10 +80,10 @@ class VolvoDataset(Dataset):
         # compute max len
         max_len = max([d.shape[0] for d in data])
         # allign data with respect to max sequence len
-        data_alligned = np.zeros((len(batch), max_len, n_features))
-        labels_allinged = np.zeros((len(batch), max_len, n_labels))
+        data_alligned = torch.zeros((len(batch), max_len, n_features))
+        labels_allinged = torch.zeros((len(batch), max_len, n_labels))
         # 0 where we , FLO is happier this way
-        mask = np.zeros((len(batch), max_len))
+        mask = torch.zeros((len(batch), max_len))
         # fill with meaningfull data
         for i, d in enumerate(data):
             data_alligned[i, :d.shape[0], :] = d

@@ -1,5 +1,5 @@
 import argparse
-from tcn_model.TcnTrainer import TcnTrainer
+from models.TcnTrainer import TcnTrainer
 
 def main(args):
     t = TcnTrainer(args)

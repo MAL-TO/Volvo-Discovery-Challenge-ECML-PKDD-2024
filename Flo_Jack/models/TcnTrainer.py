@@ -1,3 +1,5 @@
+import sys 
+sys.path.append("../")
 
 import torch
 import torch.nn as nn
@@ -11,8 +13,8 @@ import tqdm
 import argparse
 import json
 
-from tcn_model.tcn import MyTCN
-from Flo_Jack.dataset.VolvoDataset import VolvoDataset
+from models.tcn import MyTCN
+from dataset.VolvoDataset import VolvoDataset
 
 class TcnTrainer:
     def __init__(self, args):
@@ -23,7 +25,7 @@ class TcnTrainer:
         self.home_path = Path(self.curr_dir).parent.absolute()
         self.dataset_path = self.args.train_data_path
         self.weights_path = self.args.tcnn_weights
-        os.mkdir(self.weights_path, exists_ok=True)
+        os.makedirs(self.weights_path, exist_ok=True)
         
         ### Get dataset and model type
         self.num_classes = 3
@@ -65,7 +67,6 @@ class TcnTrainer:
     def train(self):
         print("=== Start training ===")
         print(f"Batch size: {self.args.batch_size}")
-        print(f"Hist size: {self.args.hist_size}")
         # Define loss function and optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 

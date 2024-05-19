@@ -59,9 +59,10 @@ class MyTCN(nn.Module):
         outputs = []
         print("TCN INPUT SHAPE:", x.shape)
 
-        out = x.copy()
+        out = x
         for layer in self.tcn:
             out = layer(out)
+            #TODO: check if a copy() is needed
             outputs.append(out)
         
         result = torch.concat(outputs, dim=-1)
