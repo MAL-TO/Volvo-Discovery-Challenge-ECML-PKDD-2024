@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
 asttokens==2.4.1
 comm==0.2.2
 contourpy==1.2.1
