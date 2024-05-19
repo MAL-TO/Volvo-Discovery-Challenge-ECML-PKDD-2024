@@ -21,8 +21,8 @@ class TcnTrainer:
         ### Get important paths
         self.curr_dir = os.path.dirname( os.path.abspath(__file__) )
         self.home_path = Path(self.curr_dir).parent.absolute()
-        self.dataset_path = os.path.join(self.home_path, "data")
-        self.weights_path = os.path.join(self.home_path, "tcn_model", "weights")
+        self.dataset_path = self.args.train_data_path
+        self.weights_path = self.args.tcnn_weights
         os.mkdir(self.weights_path, exists_ok=True)
         
         ### Get dataset and model type
@@ -56,11 +56,11 @@ class TcnTrainer:
         self.train_dataset, self.val_dataset = random_split(self.dataset, [train_size, val_size])
 
         # Create DataLoader instances for train, validation, and test sets
-        self.train_loader = DataLoader(self.train_dataset, batch_size=self.args.batch_size, shuffle=True)
-        self.val_loader = DataLoader(self.val_dataset, batch_size=self.args.batch_size)
+        self.train_loader = DataLoader(self.train_dataset, batch_size=self.args.batch_size, shuffle=True, collate_fn = VolvoDataset.padding_collate_fn)
+        self.val_loader = DataLoader(self.val_dataset, batch_size=self.args.batch_size, collate_fn = VolvoDataset.padding_collate_fn)
 
         # Define criterion
-        self.criterion = nn.CrossEntropyLoss()  # Mean Squared Error loss for regression
+        self.criterion = nn.CrossEntropyLoss()
 
     def train(self):
         print("=== Start training ===")
@@ -104,42 +104,52 @@ class TcnTrainer:
         running_loss = 0
         i = 0
 
-        for data, labels in pbar:
+        for data, labels, mask in pbar:
             pbar.set_description(f"Running loss: {running_loss/(i+1e-5) :.4}")
             
-            timeseries, static = data
-            timeseries, static, labels = timeseries.to(self.device), static.to(self.device), labels.to(self.device)
+            timeseries = data
+            timeseries, labels = timeseries.to(self.device), labels.to(self.device)
 
             outputs = self.model(timeseries)
-
 
             self.optimizer.zero_grad()
             outputs = outputs.reshape(-1, self.num_classes)
             labels = labels.reshape(-1, self.num_classes)
-
-            loss = self.criterion(outputs, labels)
+            mask = mask.reshape(-1)
+            loss = self.criterion(outputs[mask.astype(bool)], labels[mask.astype(bool)])
             loss.backward()
             self.optimizer.step()
 
-            running_loss += loss.item() * timeseries.size(0)
-            i += self.args.batch_size
+            running_loss += loss.item() * mask.sum()
+            i += mask.sum()
 
         return running_loss / (i+1e-5)
 
     def run_validation(self):
-        total_loss = 0.0
-        num_samples = 0
         with torch.no_grad():
-            for images, labels in self.val_loader:
-                images, labels = images.to(self.device), labels.to(self.device)
+            pbar = tqdm.tqdm(self.val_loader)
+            running_loss = 0
+            i = 0
+            for data, labels, mask in pbar:
+                pbar.set_description(f"Running loss: {running_loss/(i+1e-5) :.4}")
                 
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-                
-                total_loss += loss.item() * images.size(0)
-                num_samples += len(images)
+                timeseries = data
+                timeseries, labels = timeseries.to(self.device), labels.to(self.device)
 
-        validation_loss = total_loss / num_samples
+                outputs = self.model(timeseries)
+
+                self.optimizer.zero_grad()
+                outputs = outputs.reshape(-1, self.num_classes)
+                labels = labels.reshape(-1, self.num_classes)
+                mask = mask.reshape(-1)
+                loss = self.criterion(outputs[mask.astype(bool)], labels[mask.astype(bool)])
+                loss.backward()
+                self.optimizer.step()
+
+                running_loss += loss.item() * mask.sum()
+                i += mask.sum()
+
+            validation_loss = running_loss / i
         return validation_loss
 
     def run_test(self, save=True):
