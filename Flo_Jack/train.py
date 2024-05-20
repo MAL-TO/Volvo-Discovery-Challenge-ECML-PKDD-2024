@@ -25,7 +25,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--disable_cuda", action="store_true", help="Even if cuda is available, dont use it")
     
-    parser.add_argument("--train_data_path", default=r"/data1/malto/volvo_ecml_2024/train_gen1.csv", help="absolute path to data file")
+    parser.add_argument("--data_path", default=r"/data1/malto/volvo_ecml_2024", help="absolute path to data file")
+    parser.add_argument("--train_csv", default=r"train_gen1.csv", help="absolute path to data file")
+    parser.add_argument("--test_csv", default=r"public_X_test.csv", help="absolute path to data file")
     parser.add_argument("--tcnn_weights", default=r"/data1/malto/volvo_ecml_2024/tcnn_weights", help="absolute path to data file")
 
     # Wandb arguments    

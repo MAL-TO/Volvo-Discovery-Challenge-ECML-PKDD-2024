@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import ToTensor, Normalize, Compose
 from sklearn.metrics import f1_score
+import pandas as pd
 
 from pathlib import *
 import os
@@ -24,22 +25,35 @@ class TcnTrainer:
         ### Get important paths
         self.curr_dir = os.path.dirname( os.path.abspath(__file__) )
         self.home_path = Path(self.curr_dir).parent.absolute()
-        self.dataset_path = self.args.train_data_path
+        self.dataset_path = self.args.data_path 
+        self.train_data_path = os.path.join(self.dataset_path, self.args.train_csv)
+        self.test_data_path = os.path.join(self.dataset_path, self.args.test_csv)
         self.weights_path = self.args.tcnn_weights
         os.makedirs(self.weights_path, exist_ok=True)
         
         ### Get dataset and model type
         self.num_classes = 3
 
-        self.dataset = VolvoDataset(data_path=self.dataset_path)
-        self.model = MyTCN(num_input_channels=289, num_classes=self.num_classes)
+        self.train_dataset = VolvoDataset(data_path=self.train_data_path)
+        self.label_encoder = self.train_dataset.risk_encoder
+        kept_columns = self.train_dataset.get_schema()
+        self.test_dataset = VolvoDataset(data_path=self.test_data_path, test=True, columns_to_keep=kept_columns)      
+        
+        #289 is n_features with naive preprocess
+        n_features = self.train_dataset.get_n_features()
+        #check if preprocess is giving some problems
+        assert self.train_dataset.get_n_features() == self.test_dataset.get_n_features()
+        
+        self.model = MyTCN(num_input_channels=n_features, num_classes=self.num_classes)
         
         # Load weights if necessary
         if self.args.load_model != "":
             if not(self.args.load_model.endswith(".pth") or self.args.load_model.endswith(".pt")):
                 raise Exception("Weights file should end with .pt or .pth")
+            model_path = os.join.path(self.weights_path, self.args.load_model)
+            print(f"Loading Model from {model_path}")
             self.model.load_state_dict(
-                torch.load( os.join.path(self.weights_path, self.args.load_model) )
+                torch.load( model_path )
             )
 
         ### Get device
@@ -52,16 +66,17 @@ class TcnTrainer:
         # Split dataset into train, validation, and test sets
         train_ratio = 0.8
 
-        train_size = int(train_ratio * len(self.dataset))
-        val_size = len(self.dataset) - train_size
+        train_size = int(train_ratio * len(self.train_dataset))
+        val_size = len(self.train_dataset) - train_size
 
         ### TODO: FAI STRATIFIED DIOBOIA DIO
-        self.train_dataset, self.val_dataset = random_split(self.dataset, [train_size, val_size])
+        self.train_dataset, self.val_dataset = random_split(self.train_dataset, [train_size, val_size])
 
         # Create DataLoader instances for train, validation, and test sets
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.args.batch_size, shuffle=True, collate_fn = VolvoDataset.padding_collate_fn)
         self.val_loader = DataLoader(self.val_dataset, batch_size=self.args.batch_size, collate_fn = VolvoDataset.padding_collate_fn)
-
+        self.test_loader =  DataLoader(self.test_dataset, batch_size=self.args.batch_size, collate_fn = VolvoDataset.padding_collate_fn)
+        
         # Define criterion
         self.criterion = nn.CrossEntropyLoss()
 
@@ -170,19 +185,43 @@ class TcnTrainer:
             validation_f1 = f1_score(all_labels, all_outputs, average="micro")
         return validation_loss, validation_accuracy, validation_f1
 
-    #TODO: Old broken siht
-    def run_test(self, save=True):
+
+    def test(self, save = True):
+        print("=== Start Testing ===")
+        print(f"Batch size: {self.args.batch_size}")
+        
+        ### Save results
+        test_results = self.run_test()            
+        test_results = self.label_encoder.inverse_transform(test_results)
+        
+        if save:
+            res_df = pd.DataFrame(test_results, columns=["pred"])
+            res_df.to_csv("prediction.csv", index=False)
+
+    def run_test(self):
         # Test the model
         self.model.eval()
-        total_loss = 0.0
-        num_samples = 0
+        
         with torch.no_grad():
-            for images, labels in self.test_loader:
-                images, labels = images.to(self.device), labels.to(self.device)
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-                total_loss += loss.item() * images.size(0)
-                num_samples += len(images)
+            pbar = tqdm.tqdm(self.test_loader)
+            all_outputs = []
             
-        test_loss = total_loss / num_samples
-        print(f"Test Loss: {test_loss:.4f}") 
+            for data, _ , mask in pbar:
+                pbar.set_description(f"Test progress ")
+                
+                timeseries = data
+                timeseries = timeseries.to(self.device)
+
+                outputs = self.model(timeseries)
+                
+                outputs = outputs.reshape(-1, self.num_classes)
+                mask = mask.reshape(-1)
+                
+                outputs = outputs[mask.type(torch.bool)]
+                
+                all_outputs.extend(outputs.cpu().tolist())
+        
+        return all_outputs
+           
+            
+     
