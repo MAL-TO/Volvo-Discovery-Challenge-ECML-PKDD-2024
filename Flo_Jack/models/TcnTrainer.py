@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import ToTensor, Normalize, Compose
+from sklearn.metrics import f1_score
 
 from pathlib import *
 import os
@@ -83,9 +84,12 @@ class TcnTrainer:
             print(f"Epoch [{epoch+1}/{self.args.num_epochs}], Train Loss: {epoch_loss:.4f}")
 
             ### Run validation
-            validation_loss = self.run_validation()            
+            validation_loss, validation_accuracy, validation_f1= self.run_validation()            
             print(f"Validation Loss: {validation_loss:.4f}")
-
+            print(f"Validation Accuracy: {validation_accuracy:.4f}")
+            print(f"Validation F1: {validation_f1}")
+            
+            
             ### Save model if best and early stopping
             if validation_loss < best_val_loss:
                 print(f"Saving new model [New best loss {validation_loss:.4} vs Old best loss {best_val_loss:.4}]")
@@ -117,7 +121,7 @@ class TcnTrainer:
             outputs = outputs.reshape(-1, self.num_classes)
             labels = labels.reshape(-1, self.num_classes)
             mask = mask.reshape(-1)
-            loss = self.criterion(outputs[mask.astype(bool)], labels[mask.astype(bool)])
+            loss = self.criterion(outputs[mask.type(torch.bool)], labels[mask.type(torch.bool)])
             loss.backward()
             self.optimizer.step()
 
@@ -130,7 +134,11 @@ class TcnTrainer:
         with torch.no_grad():
             pbar = tqdm.tqdm(self.val_loader)
             running_loss = 0
+            running_acc = 0
             i = 0
+            all_labels = []
+            all_outputs = []
+            
             for data, labels, mask in pbar:
                 pbar.set_description(f"Running loss: {running_loss/(i+1e-5) :.4}")
                 
@@ -138,21 +146,31 @@ class TcnTrainer:
                 timeseries, labels = timeseries.to(self.device), labels.to(self.device)
 
                 outputs = self.model(timeseries)
-
-                self.optimizer.zero_grad()
+                
                 outputs = outputs.reshape(-1, self.num_classes)
                 labels = labels.reshape(-1, self.num_classes)
                 mask = mask.reshape(-1)
-                loss = self.criterion(outputs[mask.astype(bool)], labels[mask.astype(bool)])
-                loss.backward()
-                self.optimizer.step()
-
+                
+                outputs = outputs[mask.type(torch.bool)]
+                labels = labels[mask.type(torch.bool)]
+                
+                loss = self.criterion(outputs, labels)
+                acc = torch.sum(torch.argmax(labels, dim = 1) == torch.argmax(outputs, dim = 1))
+                
                 running_loss += loss.item() * mask.sum()
+                running_acc += acc 
+                
+                all_labels.extend(torch.argmax(labels, dim = 1).cpu().tolist())
+                all_outputs.extend(torch.argmax(outputs, dim = 1).cpu().tolist())
+        
                 i += mask.sum()
 
             validation_loss = running_loss / i
-        return validation_loss
+            validation_accuracy = running_acc / i
+            validation_f1 = f1_score(all_labels, all_outputs, average="micro")
+        return validation_loss, validation_accuracy, validation_f1
 
+    #TODO: Old broken siht
     def run_test(self, save=True):
         # Test the model
         self.model.eval()

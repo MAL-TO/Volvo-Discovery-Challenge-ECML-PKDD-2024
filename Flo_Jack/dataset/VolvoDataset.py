@@ -7,8 +7,10 @@ import os
 
 class VolvoDataset(Dataset):
     
-    def __init__(self, data_path = "", verbose=True):
+    def __init__(self, data_path = "", verbose=True, generation="gen1"):
         self.data_path = data_path
+        assert generation in ["gen1", "gen2"]
+        self.generation = generation
         self.groups = []
         #load df in memory
         self.volvo_df = pd.read_csv(self.data_path)
@@ -36,6 +38,10 @@ class VolvoDataset(Dataset):
         columns_to_drop = self.volvo_df.loc[:, self.volvo_df.apply(pd.Series.nunique) == 1].columns
         columns_to_drop = [ x for x in columns_to_drop if x not in ["Timesteps", "ChassisId_encoded", "gen", "risk_level"]]
         self.volvo_df.drop(columns_to_drop, axis=1, inplace=True)
+        if verbose:
+            print(f"Keep only {self.generation}")
+        drop_condition = self.volvo_df[self.volvo_df["gen"] != self.generation].index
+        self.volvo_df.drop(drop_condition, axis = 0, inplace=True)
         return self.volvo_df
         
     def __group_by_chassis__(self, verbose = True):

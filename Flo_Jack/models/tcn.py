@@ -36,7 +36,7 @@ class MyTCN(nn.Module):
         )
 
     def __build_tcn(self, config):
-        tcn_layers = []
+        tcn_layers = nn.ModuleList([])
         for i, layer in enumerate(config):
             input_channels, kernel_size, dialation, num_channels, output_size = layer 
             tcn_layer =  pytorch_tcn.TCN(
@@ -57,7 +57,7 @@ class MyTCN(nn.Module):
 
     def __forward_tcn(self, x):
         outputs = []
-        print("TCN INPUT SHAPE:", x.shape)
+        #print("TCN INPUT SHAPE:", x.shape)
 
         out = x
         for layer in self.tcn:
@@ -66,7 +66,7 @@ class MyTCN(nn.Module):
             outputs.append(out)
         
         result = torch.concat(outputs, dim=-1)
-        print("TCN OUTPUT SHAPE:", result.shape)
+        #print("TCN OUTPUT SHAPE:", result.shape)
         return result
     
     def forward(self, timeseries, static_info=None):
