@@ -4,144 +4,6 @@ import pytorch_tcn
 from torch.nn import functional as F
 from torch.jit import Final
 
-
-class Attention(nn.Module):
-    # https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/vision_transformer.py
-    fast_attn: Final[bool]
-
-    def __init__(
-        self,
-        dim,
-        num_heads=8,
-        qkv_bias=False,
-        qk_norm=False,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        norm_layer=nn.LayerNorm,
-    ):
-        super().__init__()
-        assert dim % num_heads == 0, "dim should be divisible by num_heads"
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim**-0.5
-        self.fast_attn = hasattr(torch.nn.functional, "scaled_dot_product_attention")  # FIXME
-
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    def forward(self, x):
-        B, N, C = x.shape
-        #3, B, n_head, N, head_dim
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        #B, n_head, N, head_dim
-        q, k, v = qkv.unbind(0)
-        #B, n_head, N, head_dim
-        q, k = self.q_norm(q), self.k_norm(k)
-
-        if self.fast_attn:
-            x = F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                dropout_p=self.attn_drop.p,
-            )
-        else:
-            q = q * self.scale
-            attn = q @ k.transpose(-2, -1)
-            attn = attn.softmax(dim=-1)
-            attn = self.attn_drop(attn)
-            x = attn @ v
-
-        x = x.transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
-
-class LayerScale(nn.Module):
-    def __init__(self, dim, init_values=1e-5, inplace=False):
-        super().__init__()
-        self.inplace = inplace
-        self.gamma = nn.Parameter(init_values * torch.ones(dim))
-
-    def forward(self, x):
-        return x.mul_(self.gamma) if self.inplace else x * self.gamma
-
-class Mlp(nn.Module):
-    """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
-
-    def __init__(
-        self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.GELU,
-        bias=True,
-        drop=0.0,
-    ):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-
-        self.fc1 = nn.Linear(in_features, hidden_features, bias=bias)
-        self.act = act_layer()
-        self.drop1 = nn.Dropout(drop)
-        self.fc2 = nn.Linear(hidden_features, out_features, bias=bias)
-        self.drop2 = nn.Dropout(drop)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop1(x)
-        x = self.fc2(x)
-        x = self.drop2(x)
-        return x
-
-class Block(nn.Module):
-    def __init__(
-        self,
-        dim,
-        num_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        qk_norm=False,
-        drop=0.0,
-        attn_drop=0.0,
-        init_values=None,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-    ):
-        super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            qk_norm=qk_norm,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-            norm_layer=norm_layer,
-        )
-        self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
-
-        self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(
-            in_features=dim,
-            hidden_features=int(dim * mlp_ratio),
-            act_layer=act_layer,
-            drop=drop,
-        )
-        self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
-
-    def forward(self, x):
-        x = x + self.ls1(self.attn(self.norm1(x)))
-        x = x + self.ls2(self.mlp(self.norm2(x)))
-        return x
-
-
 class MyTCN(nn.Module):
     def __init__(self, num_input_channels, num_classes=3, tcn_config=None):
         super(MyTCN, self).__init__()
@@ -180,8 +42,8 @@ class MyTCN(nn.Module):
             # nn.Dropout(0.1),
         )
 
-        self.attention_block = Block(dim = sum([x[-2] if x[-1] == -1 else x[-1] for x in tcn_config]), num_heads=1)
-        
+        self.attention_layer = nn.Linear(sum([x[-2] if x[-1] == -1 else x[-1] for x in tcn_config]), 1)
+                                   
         self.mlp = nn.Sequential(
             nn.Linear( 12 + sum([x[-2] if x[-1] == -1 else x[-1] for x in tcn_config]), 1024),
             nn.ReLU(),
@@ -246,7 +108,9 @@ class MyTCN(nn.Module):
         # temporal_features_tensor = (BATCH, TIMESTAMP, FEATURES)
         temporal_features_tensor = self.__forward_tcn(ts_features)
         #attention 
-        temporal_features_tensor = self.attention_block(temporal_features_tensor)
+        #attention_weights = softamx of projected( in, 1 )
+        #out = in * attention_weights 
+        temporal_features_tensor = temporal_features_tensor *  torch.softmax( self.attention_layer(temporal_features_tensor), dim = -1)
         # temporal_features_and_variants_tensor = (BATCH, TIMESTAMP, TEMP_FEATURES)
         temporal_features_and_variants_tensor = torch.cat([temporal_features_tensor, static_info], dim=-1)
         
