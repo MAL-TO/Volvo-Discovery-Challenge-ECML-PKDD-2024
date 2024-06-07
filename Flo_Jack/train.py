@@ -12,16 +12,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     ### Training arguments
+    parser.add_argument("--seed", type=int, default=13_04_2000, help="Size of the batch for training")
     parser.add_argument("--test_only", action="store_true", help="Flag to avoid training")
     parser.add_argument("--load_model", type=str, default="", help="Weights model name (stored in 'weights/' directory)")
 
-    parser.add_argument("--batch_size", type=int, default=64, help="Size of the batch for training")
+    parser.add_argument("--batch_size", type=int, default=128, help="Size of the batch for training")
 
     parser.add_argument("--num_epochs", type=int, default=30, help="Number of epochs to train the model")
     parser.add_argument("--learning_rate", type=float, default=0.0005, help="Starting learning rate")
-    parser.add_argument("--lr_scheduler_gamma", type=float, default=0.5, help="Muliply the learning rate by the gamma factor every {args.lr_cheduler_step} steps")
-    parser.add_argument("--lr_scheduler_step", type=int, default=4, help="Every how many epochs apply the gamma to the learning rate")
-    parser.add_argument("--patience_epochs", type=int, default=9, help="After how many epochs of not improving the validation score stop the training")
+    parser.add_argument("--lr_scheduler_gamma", type=float, default=0.85, help="Muliply the learning rate by the gamma factor every {args.lr_cheduler_step} steps")
+    parser.add_argument("--lr_scheduler_step", type=int, default=1, help="Every how many epochs apply the gamma to the learning rate")
+    parser.add_argument("--patience_epochs", type=int, default=7, help="After how many epochs of not improving the validation score stop the training")
 
     parser.add_argument("--disable_cuda", action="store_true", help="Even if cuda is available, dont use it")
     

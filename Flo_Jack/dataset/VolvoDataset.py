@@ -1,127 +1,68 @@
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
 import torch
 import os
 import tqdm
+from copy import copy, deepcopy
 
-from dataset.dataset_utils import wavelet_spectrogram
+from sklearn.model_selection import train_test_split
+
+from dataset.dataset_utils import wavelet_spectrogram, stft_spectogram
+from dataset.Processor import Processor
+
 
 class VolvoDataset(Dataset):
-    
-    def __init__(self, data_path = "", variants_path="", verbose=True, test=False, columns_to_keep=None, scaler=None):
+    def __init__(self, data_path = "", variants_path="", verbose=True, test=False):
         self.data_path = data_path
         self.variants_path = variants_path
+        self.val = False
         self.test = test
         self.groups = []
-        self.scaler = scaler
+
         #load df in memory
         self.volvo_df = pd.read_csv(self.data_path)
         self.variants = pd.read_csv(self.variants_path)
-
-        #fit one hot encoder on labels
-        if not self.test:
-            print("--- Train Dataset ---")
-            self.risk_encoder = OneHotEncoder(
-                categories=[['Low', 'Medium', 'High']]
-                )
-            self.risk_encoder.fit(self.volvo_df["risk_level"].values.reshape(-1, 1))
-            self.header_columns = ["Timesteps", "ChassisId_encoded", "gen", "risk_level"]
-            #preprocess df
-            print("preprocessing ... ")
-            self.volvo_df = self.__preprocess__(verbose)
-            #save dataframe structure to apply on unseen data
-            self.kept_columns = self.volvo_df.columns
-            
-        elif self.test:
-            print("--- Test Dataset ---")
-            self.header_columns = ["Timesteps", "ChassisId_encoded", "gen"] 
-            if columns_to_keep is not None:
-                column_to_drop = [ x for x in self.volvo_df.columns if x not in columns_to_keep]
-                self.volvo_df.drop(column_to_drop, axis=1, inplace=True)
-            
-        self.df_list = self.__group_by_chassis__(verbose)
-        #get statistics
-        self.n_groups = len(self.df_list)
-        self.groups_len = [len(df) for df in self.df_list]
-        # self.test_contiguity()
+  
         self.randomize_length = True
 
     def set_randomize(self, randomize):
         self.randomize_length = randomize
 
-    def keep_indexes(self, indexes):
-        # TODO
-        pass
+    def split_train_validation(self, train_ratio=0.8):
+        all_indexes = list(range(len(self.df_list)))
+        X_train, X_test, _, _ = train_test_split(all_indexes, all_indexes, train_size=train_ratio)
+        validation_dataset = copy(self)
 
-    def __preprocess__(self, verbose = False):
-        """
-        Preprocess the volvo df by removing NaN columns, static columns and correlated features
-        """
-        assert self.volvo_df is not None
-        
-        if verbose:
-            print("Dropping useless columns")
-        columns_to_drop = ["f__51", "f__52", "f__65", "f__117", "f__119", "f__123",  "f__133", \
-                            "af2__5",  "af2__6",  "af2__13",  "af2__18",  "af2__19",  "af2__20",  "af2__22", "f__22", \
-                            'af1__5', 'af1__10', 'af1__22', 'af1__26', 'af1__30', 'f__10', 'f__15', 'f__26', 'f__36', 'f__90', 'f__91', 'f__98', 'f__104', 'f__120', 'f__122', 'f__127', 'f__129', 'f__140', 'f__152', 'f__153', 'f__154', 'f__158', 'f__169', 'f__170', 'f__172', 'f__173', 'f__174', 'f__175', 'f__176', 'f__177', 'f__178', 'f__188', 'f__198', 'f__199', 'f__203', 'f__207', 'f__214', 'f__215', 'f__219', 'f__228', 'f__231', 'f__236']
+        self.keep_indexes(X_train)
+        validation_dataset.keep_indexes(X_test)
+        validation_dataset.val = True
 
-        self.volvo_df.drop(columns_to_drop, axis=1, inplace=True)
-        return self.volvo_df
+        return self, validation_dataset
+
+    def keep_indexes(self, idx):
+        self.df_list = [self.df_list[i] for i in idx]
+
+    def get_processor(self):
+        self.processor = Processor()
+        self.volvo_df = self.processor.preprocess(self.volvo_df)
+        self.processor.fit(self.volvo_df)        
+        self.df_list = self.processor.group_by_chassis(self.volvo_df, skip_if_less_than=10, split_in_len=10)
     
-    def get_schema(self):
-        return self.kept_columns
-        
-    def __group_by_chassis__(self, verbose = True):
-        assert self.volvo_df is not None
-        
-        #each chassis has now a df with its multivariate time series
-        self.df_list = []
-        groups = self.volvo_df.groupby("ChassisId_encoded")
-        for name, group_df in tqdm.tqdm(groups, desc="Group and feature extraction"):
-            if not self.test and (len(group_df) < 5):# or len(group_df['risk_level'].value_counts()) < 2):
-                continue
-            
-            group_headings = group_df[self.header_columns]
-            group_features = group_df.drop(self.header_columns, axis = 1)
 
-            diffs = group_features.diff(axis=1).fillna(0)
-            diffs.columns = [x + "_diff" for x in group_features.columns]
+        return self.processor
 
-            wavelet_df = wavelet_spectrogram(group_features, 4)
+    def set_processor(self, processor):
+        self.processor = processor
+        self.volvo_df = self.processor.preprocess(self.volvo_df)
+        self.df_list = self.processor.group_by_chassis(self.volvo_df)
 
-            group_df = pd.concat([group_headings.reset_index(drop=True), 
-                                  group_features.reset_index(drop=True), 
-                                  diffs.reset_index(drop=True),
-                                  wavelet_df.reset_index(drop=True)
-                                  ], axis=1)
-
-            self.df_list.append(group_df)
-
-        # print("Scaling features...", end='')
-        # if self.scaler == None:
-        #     if not self.test:
-        #         all_dataset = pd.concat(self.df_list, axis=0, ignore_index=True).drop(self.header_columns, axis=1)
-        #         self.scaler = MinMaxScaler()
-        #         self.scaler.fit(all_dataset)
-        # for group in self.df_list:
-        #     group_features = group.drop(self.header_columns, axis=1)
-        #     group_features_scaled = self.scaler.transform(group_features)
-        #     group_features_scaled_df = pd.DataFrame(group_features_scaled, columns=group_features.columns)
-        #     group = pd.concat([group[self.header_columns], group_features_scaled_df], axis=0, ignore_index=True)
-        # print('done')
-        
-        print(f"Num timeseries: {len(self.df_list)}")
-        print(f"Num features: {len(self.df_list[0].columns)}")
-        return self.df_list
-    
     def get_n_features(self):
         assert self.volvo_df is not None
         features, variant, labels = self[0]
         return features.shape[-1]
         
-    def get_len_variants():
+    def get_len_variants(self):
         assert self.volvo_df is not None
         features, variant, labels = self[0]
         return len(variant)
@@ -142,13 +83,19 @@ class VolvoDataset(Dataset):
         # retrieve the idx-th group
         ts = self.df_list[idx].sort_values(by=["Timesteps"], ascending=True)
         chassis_id = ts['ChassisId_encoded'].iloc[0]
-        time_series = ts.drop(self.header_columns, axis = 1).values
+        _, time_series = self.processor.split_heading_features(ts)
+
+        time_series = self.processor.extract_features(time_series)
+        time_series = time_series.values
 
         # point_wise labels
         if not self.test:
             #train data with labels 
             timestep_labels = ts["risk_level"]
-            labels = self.risk_encoder.transform(timestep_labels.values.reshape(-1, 1)).todense()
+            labels = self.processor.risk_encoder.transform(timestep_labels.values.reshape(-1, 1)).todense()
+            if np.isnan(labels).any():
+                print(np.isnan(labels).any())
+                print(labels)
         elif self.test:
             #test data without risk_level as key in dataframe
             labels = np.empty((len(time_series),3))
@@ -158,11 +105,18 @@ class VolvoDataset(Dataset):
 
         random_start = 0
         random_end = len(time_series)
-        if not self.test and self.randomize_length and len(labels) > 5:
-            random_len = np.random.randint(5, len(time_series))
-            remainder = len(time_series) - random_len
-            random_start = np.random.randint(0, remainder)
-            random_end = random_start + random_len
+        # if not self.val and not self.test:
+            
+        #     if self.randomize_length and len(labels) > 5:
+        #         random_len = np.random.randint(5, 15)#len(time_series))
+        #         remainder = len(time_series) - random_len
+        #         random_start = np.random.randint(0, remainder) if remainder > 0 else 0
+        #         random_end = random_start + random_len
+            
+            # means = np.mean(time_series, axis=0)
+            # std = np.std(time_series, axis=0)
+            # noise = np.random.normal(0, 0.2*std, size=time_series.shape)
+            # time_series += noise
 
         return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(labels)[random_start: random_end]
     

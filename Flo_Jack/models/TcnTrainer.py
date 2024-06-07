@@ -17,7 +17,7 @@ import tqdm
 import argparse
 import json
 
-from models.tcn import MyTCN
+from models.tcn import MS_TCN
 from dataset.VolvoDataset import VolvoDataset
 from utils.ContinuityCrossEntropyLoss import ContinuityCrossEntropyLoss
 from utils.StatsComputer import StatsComputer
@@ -25,6 +25,10 @@ from utils.StatsComputer import StatsComputer
 class TcnTrainer:
     def __init__(self, args):
         self.args = args
+
+        ### Set seed
+        np.random.seed(self.args.seed)
+        torch.manual_seed(self.args.seed)
 
         ### Get important paths
         self.curr_dir = os.path.dirname( os.path.abspath(__file__) )
@@ -40,20 +44,30 @@ class TcnTrainer:
         self.num_classes = 3
 
         self.train_dataset = VolvoDataset(data_path=self.train_data_path, variants_path=self.variants_path)
-        self.label_encoder = self.train_dataset.risk_encoder
-        kept_columns = self.train_dataset.get_schema()
-        scaler = self.train_dataset.scaler
+        self.processor = self.train_dataset.get_processor()
+        self.label_encoder = self.processor.risk_encoder
 
+        self.train_dataset, self.validation_dataset = self.train_dataset.split_train_validation()
     
-        self.test_dataset = VolvoDataset(data_path=self.test_data_path, variants_path=self.variants_path,
-                                         test=True, columns_to_keep=kept_columns, scaler=scaler)      
+        self.test_dataset = VolvoDataset(data_path=self.test_data_path, variants_path=self.variants_path, test=True)
+        self.test_dataset.set_processor(self.processor) 
+     
         
         n_features = self.train_dataset.get_n_features()
         
         #check if preprocess is giving some problems
         assert self.train_dataset.get_n_features() == self.test_dataset.get_n_features()
         
-        self.model = MyTCN(num_input_channels=n_features, num_classes=self.num_classes)
+        self.model = MS_TCN(num_stages=0, 
+                            num_input_channels=n_features, 
+                            num_classes=self.num_classes)
+
+        ### Get device
+        self.device = torch.device(
+                    "cuda" if (torch.cuda.is_available() and not self.args.disable_cuda) else "cpu"
+                )
+        self.model.to(self.device)
+        print(f"Working on {self.device}")
         
         # Load weights if necessary
         if self.args.load_model != "":
@@ -65,58 +79,35 @@ class TcnTrainer:
                 torch.load( model_path )
             )
 
-        ### Get device
-        self.device = torch.device(
-                    "cuda" if (torch.cuda.is_available() and not self.args.disable_cuda) else "cpu"
-                )
-        self.model.to(self.device)
-        print(f"Working on {self.device}")
-
-        # Split dataset into train, validation, and test sets
-
-        # TODO: refactor shitty code pls.
-        print(f"Splitting in train/validation...", end='')
-        # y = [torch.sum(self.train_dataset[i][0], dim=0) for i in range(len(self.train_dataset))]
-        # y = [np.random.choice([0,1]) for _ in range(len(self.train_dataset))] 
-
-        # train_idx, valid_idx= train_test_split(np.arange(len(self.train_dataset)),
-        #                                        test_size=1-train_ratio,
-        #                                        shuffle=True)
-        #                                     #    stratify=y)
-        
-        # train_sampler = torch.utils.data.SubsetRandomSampler(train_idx)
-        # valid_sampler = torch.utils.data.SubsetRandomSampler(valid_idx)
-        print('done')
-
-        train_ratio = 0.8
-        self.training_dataset, self.validation_dataset = torch.utils.data.random_split(self.train_dataset, [train_ratio, 1-train_ratio])
-
         # Create DataLoader instances for train, validation, and test sets
-        self.train_loader = DataLoader(self.training_dataset, 
+        self.train_loader = DataLoader(self.train_dataset, 
                                        batch_size=self.args.batch_size, 
                                        collate_fn = VolvoDataset.padding_collate_fn,
-                                       shuffle=True)
+                                       shuffle=True,
+                                       num_workers=12) #pin_memory=True #consigliano
         self.val_loader = DataLoader(self.validation_dataset, 
                                      batch_size=self.args.batch_size, 
                                      collate_fn = VolvoDataset.padding_collate_fn, 
-                                     shuffle=True)
+                                     shuffle=True,
+                                     num_workers=12)
         self.test_loader =  DataLoader(self.test_dataset, 
                                        batch_size=1, 
                                        collate_fn = VolvoDataset.padding_collate_fn)
         
         # Define criterion
         print('Computing class weights...', end='')
-        y = self.label_encoder.transform( self.train_dataset.volvo_df[["risk_level"]] )
+        y = self.label_encoder.transform( self.train_dataset.volvo_df[["risk_level"]].values )
         y = np.argmax(y, axis=1).flatten()
         y = np.array(y)[0]
 
         weights = compute_class_weight(class_weight="balanced", classes=np.unique(y), y=y)
-        weights = weights ** 1.0
+        weights = weights 
         self.criterion = ContinuityCrossEntropyLoss(
             weights=torch.Tensor(weights).to(self.device)
             )
         print('done')
         print('Class weights = ', weights)
+        # self.criterion = ContinuityCrossEntropyLoss(weights=torch.Tensor([1,1,1]).to(self.device))
 
 
     def reset_optimizer(self, lr):
@@ -151,11 +142,13 @@ class TcnTrainer:
             
             
             ### Save model if best and early stopping
-            if validation_loss < best_val_loss:
-                best_val_loss = validation_loss
+            # if validation_loss < best_val_loss:
             #     print(f"Saving new model [New best loss {validation_loss} vs Old best loss {best_val_loss}]")
-            if validation_f1 > best_val_f1:
-                print(f"Saving new model [New best f1 {validation_f1} vs Old best f1 {best_val_f1}]")
+            if validation_f1 > best_val_f1 or (validation_f1 == best_val_f1 and validation_loss < best_val_loss):
+                print(f"Saving new model \n", 
+                      f"[New best loss {validation_loss} vs Old best loss {best_val_loss}] \n ",
+                      f"[New best f1   {validation_f1} vs Old best f1   {best_val_f1}]")
+                best_val_loss = validation_loss
                 best_val_f1 = validation_f1
                 waiting_epochs = 0
                 torch.save(self.model.state_dict(), os.path.join(self.weights_path, "TCN_best.pth"))
@@ -186,10 +179,16 @@ class TcnTrainer:
 
             self.optimizer.zero_grad()
             
-            # print(continuity_loss)
-            loss = self.criterion(outputs, labels, mask)
+            loss = 0
+            for o in outputs:
+                loss += self.criterion(o, labels, mask)
+                if torch.isnan(loss).any():
+                    print(torch.isnan(o).any())
+                    print(torch.isnan(labels).any())
             loss.backward()
             self.optimizer.step()
+
+                
 
             running_loss += loss.item() * mask.sum()
             i += mask.sum()
@@ -212,8 +211,13 @@ class TcnTrainer:
                 timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
 
                 outputs = self.model(timeseries, variants)
-                loss = self.criterion(outputs, labels, mask)
                 
+
+                loss = 0
+                for o in outputs:
+                    loss += self.criterion(o, labels, mask)
+                
+                outputs = outputs[-1]
                 masked_outputs, masked_labels = self.criterion.get_masked_reshaped(outputs, labels, mask)        
                 acc = torch.sum(torch.argmax(masked_labels, dim = 1) == torch.argmax(masked_outputs, dim = 1))
                 
@@ -235,7 +239,6 @@ class TcnTrainer:
             validation_loss = running_loss / i
             validation_accuracy = running_acc / i
             
-             #round(macro_avg_f1, 2)
             validation_f1 = stats.macro_avg_f1()
             print(stats)
 
@@ -271,7 +274,7 @@ class TcnTrainer:
                 
                 timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
 
-                outputs = self.model(timeseries, variants)
+                outputs = self.model(timeseries, variants)[0]
 
                 mask = mask.reshape(-1)                
                 outputs = outputs.reshape(-1, self.num_classes)

@@ -3,7 +3,7 @@ import pywt
 import matplotlib.pyplot as plt
 import pandas as pd
 
-def wavelet_spectrogram(df, n, wavelet='coif1'):
+def wavelet_spectrogram(df, n, wavelet='db1'):
     """
     Perform wavelet transformation on each column of the input DataFrame and return a DataFrame with the wavelet spectrogram.
     
@@ -37,22 +37,13 @@ def wavelet_spectrogram(df, n, wavelet='coif1'):
     # Loop through each column in the DataFrame
     for i, col in enumerate(df.columns):
         series = df[col].values
-        columns.extend([f'{col}_wavelet_scale_{j}' for j in range(num_decompositions)])
+        columns.extend([f'{col}_wavelet_{wavelet}_scale_{j}' for j in range(num_decompositions)])
         
         
         # Perform discrete wavelet transform up to the specified number of scales
         coeffs = pywt.wavedec(series, wavelet, level=max_level)
         
         mycoeff = np.zeros((num_decompositions, num_samples))
-
-        # coeff = coeffs[::-1]
-        # for j in range(len(coeff)-1):
-        #     num_repeats = np.power(2, j+1)
-        #     repeated = np.repeat(coeff[j], num_repeats)
-        #     mycoeff[j] = repeated[:num_samples]
-        # num_repeats = np.power(2, len(coeff)-1)
-        # repeated = np.repeat(coeff[-1], num_repeats)
-        # mycoeff[len(coeff)-1] = repeated[:num_samples]
 
         coeff = coeffs
         num_repeats = np.power(2, len(coeff)-1)
@@ -63,19 +54,76 @@ def wavelet_spectrogram(df, n, wavelet='coif1'):
             repeated = np.repeat(coeff[j], num_repeats)
             mycoeff[j] = repeated[:num_samples]
 
-        # print(mycoeff.T.shape)
-        # print(i * n, (i+1) * n)
-        # print(spectrogram[:, i * n : (i+1) * n].shape)
         spectrogram[:, i * num_decompositions : (i+1) * num_decompositions] = mycoeff.T
-        # Add each level of detailed coefficients to the spectrogram
-        # for j in range(1, n):
-        #     if j <= max_level:
-        #         # Resize the coefficients to match the original series length
-        #         cD = pywt.upcoef('d', coeffs[j], wavelet, take=num_samples)
-        #         if len(cD) < num_samples:
-        #             cD = np.pad(cD, (0, num_samples - len(cD)), 'constant')
 
     # Create the DataFrame
     spectrogram_df = pd.DataFrame(spectrogram, columns=columns)
     
     return spectrogram_df
+
+
+from scipy.signal import stft
+
+def my_stft(signal, window=5):
+        # Parameters for STFT
+        nperseg = window  # Length of each segment
+        noverlap = window-1  # Number of points to overlap between segments
+
+        # Compute the STFT
+        f, t, Zxx = stft(signal, nperseg=nperseg, noverlap=noverlap, padded=True)
+
+        # Extract features for each timestep
+        # Feature extraction: Use the magnitude of the STFT coefficients as features
+        stft_magnitude = np.abs(Zxx)
+        return stft_magnitude
+
+def stft_spectogram(df, window=5):
+    
+    num_samples = df.shape[0]
+    num_features = df.shape[1]
+    
+    # Initialize a list to store the column names
+    columns = []
+    
+    # Initialize a 2D array to store the wavelet spectrograms
+    num_frequencies = window//2 + 1
+    spectrogram = np.zeros((num_samples, num_features*num_frequencies))
+    
+    # Loop through each column in the DataFrame
+    for i, col in enumerate(df.columns):
+        series = df[col].values
+        columns.extend([f'{col}_stft_{j}' for j in range(num_frequencies)])
+
+        freq_extracted = my_stft(series, window=window)
+        spectrogram[:, i * num_frequencies : (i+1) * num_frequencies] = freq_extracted.T
+        
+    
+    spectrogram_df = pd.DataFrame(spectrogram, columns=columns)
+
+    return spectrogram_df
+
+def classify_columns(df, ratio=0.1):
+    classification = []
+
+    for column in df.columns:
+        unique_values = df[column].nunique()
+        total_values = len(df[column])
+        unique_ratio = unique_values / total_values
+        
+        # Heuristic: If unique ratio is high, it's likely numerical
+        if df[column].dtype in [int, float] and unique_ratio > ratio:
+            classification.append("numerical")
+        # Heuristic: If unique ratio is low, it's likely categorical
+        elif df[column].dtype == object or unique_ratio <= ratio:
+            classification.append("categorical")
+        # Heuristic: For integer columns, check the number of unique values
+        elif df[column].dtype == int:
+            if unique_values < ratio * total_values:  # Arbitrary threshold for uniqueness
+                classification.append("categorical")
+            else:
+                classification.append("numerical")
+        # Fallback: Classify as numerical if not sure
+        else:
+            classification.append("numerical")
+
+    return classification
