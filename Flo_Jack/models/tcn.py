@@ -75,6 +75,8 @@ class SS_TCN(nn.Module):
 
         self.tcn = self.__build_tcn(tcn_config)
         
+        self.prenorm = nn.LayerNorm(self.num_input_channels)
+
         if self.apply_feature_extractor:
             self.feature_extractor = nn.Sequential(
                 nn.Linear(self.num_input_channels, 4096),
@@ -88,7 +90,7 @@ class SS_TCN(nn.Module):
                 nn.Dropout(0.2)
             )
 
-        self.tcn_output_dim = hidden_features#sum([x[-2] if x[-1] == -1 else x[-1] for x in tcn_config])
+        self.tcn_output_dim = hidden_features
         self.attention_layer = nn.Linear(self.tcn_output_dim, 1)
 
         
@@ -164,6 +166,8 @@ class SS_TCN(nn.Module):
         return result
     
     def forward(self, timeseries, static_info=None):
+        timeseries = self.prenorm(timeseries)
+
         if static_info is None:
             static_info = torch.zeros((*timeseries.shape[:-1],12)).to('cuda' if torch.cuda.is_available() else 'cpu')
 

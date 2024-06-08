@@ -35,6 +35,12 @@ class Processor:
 
             df_list.append(group_df)
 
+        return df_list
+    
+    def split_in_len(self, orig_df_list, split_in_len=10):
+        
+        df_list = []
+        for group_df in orig_df_list:
             if split_in_len <= 0:
                 df_list.append(group_df)
             elif split_in_len > 0 and len(group_df) < split_in_len:
@@ -46,6 +52,9 @@ class Processor:
                     if start < 0:
                         break
                     df_list.append(group_df.iloc[start:end])
+
+                    # print(group_df.iloc[start:end])
+
         return df_list
     
 
@@ -61,10 +70,10 @@ class Processor:
 
         wavelet_df = wavelet_spectrogram(df_numerical_features, 3, wavelet="coif1")
         # wavelet_db8_df = wavelet_spectrogram(df_numerical_features, 3, wavelet="db4")
-        # stft_df = stft_spectogram(df_numerical_features, window=5)
+        stft_df = stft_spectogram(df_numerical_features, window=5)
 
         enhanced_df = pd.concat([
-                                df_numerical_features.reset_index(drop=True), 
+                                # df_numerical_features.reset_index(drop=True), 
                                 df_categorical_features.reset_index(drop=True),
                                 # diffs.reset_index(drop=True),
                                 wavelet_df.reset_index(drop=True),

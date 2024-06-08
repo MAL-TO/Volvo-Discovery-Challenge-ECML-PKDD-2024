@@ -105,18 +105,25 @@ class VolvoDataset(Dataset):
 
         random_start = 0
         random_end = len(time_series)
-        # if not self.val and not self.test:
+        if  not self.test:
             
-        #     if self.randomize_length and len(labels) > 5:
-        #         random_len = np.random.randint(5, 15)#len(time_series))
-        #         remainder = len(time_series) - random_len
-        #         random_start = np.random.randint(0, remainder) if remainder > 0 else 0
-        #         random_end = random_start + random_len
+            if self.randomize_length and len(labels) > 5:
+                random_len = np.random.randint(5, 15)#len(time_series))
+                # if self.val: random_len = 10
+
+                remainder = len(time_series) - random_len
+                random_start = np.random.randint(0, remainder) if remainder > 0 else 0
+                random_end = random_start + random_len
             
             # means = np.mean(time_series, axis=0)
             # std = np.std(time_series, axis=0)
             # noise = np.random.normal(0, 0.2*std, size=time_series.shape)
             # time_series += noise
+
+        # labels_binary = labels.copy()
+        # labels_binary[:, 1] = labels_binary[:, 1] + labels_binary[:, 2]
+        # labels_binary = labels_binary[:, :2]
+        # time_series = np.hstack([time_series, labels_binary])
 
         return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(labels)[random_start: random_end]
     

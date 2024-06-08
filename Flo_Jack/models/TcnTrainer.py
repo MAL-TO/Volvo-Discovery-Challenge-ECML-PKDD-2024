@@ -91,7 +91,7 @@ class TcnTrainer:
                                      shuffle=True,
                                      num_workers=12)
         self.test_loader =  DataLoader(self.test_dataset, 
-                                       batch_size=1, 
+                                       batch_size=self.args.batch_size,
                                        collate_fn = VolvoDataset.padding_collate_fn)
         
         # Define criterion
