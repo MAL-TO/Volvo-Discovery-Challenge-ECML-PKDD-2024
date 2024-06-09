@@ -23,6 +23,10 @@ class VolvoDataset(Dataset):
         #load df in memory
         self.volvo_df = pd.read_csv(self.data_path)
         self.variants = pd.read_csv(self.variants_path)
+
+        # if not self.test:
+            # self.volvo_df = self.volvo_df.loc[self.volvo_df['risk_level']!="Low"]
+            # self.volvo_df['risk_level'] = self.volvo_df['risk_level'].replace("Medium", "High")        #     print(len)
   
         self.randomize_length = True
 
@@ -31,12 +35,36 @@ class VolvoDataset(Dataset):
 
     def split_train_validation(self, train_ratio=0.8):
         all_indexes = list(range(len(self.df_list)))
-        X_train, X_test, _, _ = train_test_split(all_indexes, all_indexes, train_size=train_ratio)
-        validation_dataset = copy(self)
+        y_stratify = []
+        for i, group_df in enumerate(self.df_list):
+            if len(group_df['risk_level'].value_counts()) > 1:
+                y_stratify.append(1)
+            else:
+                y_stratify.append(0)
+
+
+        X_train, X_test, _, _ = train_test_split(all_indexes, all_indexes, train_size=train_ratio, stratify=y_stratify)
+        validation_dataset = deepcopy(self)
 
         self.keep_indexes(X_train)
         validation_dataset.keep_indexes(X_test)
+
+        # self.df_list = self.processor.split_in_len(
+        #     self.df_list, 10, every=4
+        # )
+
+        # validation_dataset.df_list = validation_dataset.processor.split_in_len(
+        #     validation_dataset.df_list, split_in_len=10, every=4
+        # )
         validation_dataset.val = True
+
+        # new_df_list = []
+        # for i in tqdm.tqdm(range(len(self.df_list))):
+        #     if len(self.df_list[i].value_counts()) > 1:
+        #         new_df_list.append(self.df_list[i])
+
+        # self.df_list = new_df_list
+
 
         return self, validation_dataset
 
@@ -61,6 +89,12 @@ class VolvoDataset(Dataset):
         assert self.volvo_df is not None
         features, variant, labels = self[0]
         return features.shape[-1]
+    
+    def get_n_classes(self):
+        assert self.volvo_df is not None
+        features, variant, labels = self[0]
+        return labels.shape[-1]
+        
         
     def get_len_variants(self):
         assert self.volvo_df is not None
@@ -109,24 +143,37 @@ class VolvoDataset(Dataset):
             
             if self.randomize_length and len(labels) > 5:
                 random_len = np.random.randint(5, 15)#len(time_series))
-                # if self.val: random_len = 10
+                if self.val: random_len = 10
 
                 remainder = len(time_series) - random_len
                 random_start = np.random.randint(0, remainder) if remainder > 0 else 0
                 random_end = random_start + random_len
             
-            # means = np.mean(time_series, axis=0)
-            # std = np.std(time_series, axis=0)
-            # noise = np.random.normal(0, 0.2*std, size=time_series.shape)
-            # time_series += noise
+            if not self.val:
+                std = np.std(time_series, axis=0)
+                noise = np.random.normal(0, 0.2*std, size=time_series.shape)
+                time_series += noise
 
         # labels_binary = labels.copy()
         # labels_binary[:, 1] = labels_binary[:, 1] + labels_binary[:, 2]
         # labels_binary = labels_binary[:, :2]
+        # labels = labels_binary
         # time_series = np.hstack([time_series, labels_binary])
 
+        # time_series = time_series + self.getPositionEncoding(len(time_series), len(time_series[0]))
+        time_series = np.hstack([time_series, self.getPositionEncoding(len(time_series), 50)])
+        time_series = np.hstack([time_series, ts['Timesteps'].to_numpy().reshape(-1,1)])
         return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(labels)[random_start: random_end]
     
+    def getPositionEncoding(self, seq_len, d, n=1000):
+        P = np.zeros((seq_len, d))
+        for k in range(seq_len):
+            for i in np.arange(int(d/2)):
+                denominator = np.power(n, 2*i/d)
+                P[k, 2*i] = np.sin(k/denominator)
+                P[k, 2*i+1] = np.cos(k/denominator)
+        return P
+
     @staticmethod
     def padding_collate_fn(batch):
         data, variants, labels = zip(*batch)

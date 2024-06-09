@@ -43,6 +43,7 @@ class ContinuityCrossEntropyLoss:
             sum_smax_output = sum_smax_output[1:]
             
             relu_sum_smax_output = torch.nn.functional.relu(sum_smax_output - 9)
+            # relu_sum_smax_output = torch.nn.functional.relu(sum_smax_output - 18)
 
             powered_relu_sum_smax_output = torch.pow(1 + relu_sum_smax_output, 2)
             loss[n] = torch.sum(powered_relu_sum_smax_output)

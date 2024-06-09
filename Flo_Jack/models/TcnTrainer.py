@@ -41,7 +41,6 @@ class TcnTrainer:
         os.makedirs(self.weights_path, exist_ok=True)
         
         ### Get dataset and model type
-        self.num_classes = 3
 
         self.train_dataset = VolvoDataset(data_path=self.train_data_path, variants_path=self.variants_path)
         self.processor = self.train_dataset.get_processor()
@@ -54,6 +53,7 @@ class TcnTrainer:
      
         
         n_features = self.train_dataset.get_n_features()
+        self.num_classes = self.train_dataset.get_n_classes()
         
         #check if preprocess is giving some problems
         assert self.train_dataset.get_n_features() == self.test_dataset.get_n_features()
@@ -103,7 +103,8 @@ class TcnTrainer:
         weights = compute_class_weight(class_weight="balanced", classes=np.unique(y), y=y)
         weights = weights 
         self.criterion = ContinuityCrossEntropyLoss(
-            weights=torch.Tensor(weights).to(self.device)
+            weights=torch.Tensor(weights).to(self.device),
+            num_classes=self.num_classes
             )
         print('done')
         print('Class weights = ', weights)
