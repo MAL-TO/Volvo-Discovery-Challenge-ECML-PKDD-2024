@@ -197,6 +197,8 @@ class SS_TCN(nn.Module):
         temporal_features_tensor = torch.cat([temporal_features_tensor, attention_features_tensor], dim=-1)
 
         # temporal_features_and_variants_tensor = (BATCH, TIMESTAMP, TEMP_FEATURES)
+        #print(temporal_features_tensor.shape, static_info.shape)
+        temporal_features_tensor = temporal_features_tensor.mean(dim=1)
         temporal_features_and_variants_tensor = torch.cat([temporal_features_tensor, static_info], dim=-1)
 
 
@@ -208,8 +210,7 @@ class SS_TCN(nn.Module):
         # global pooling over each time series 
         # (BATCH, TEMP_FEATURES)
         if self.is_phase_1:
-            temporal_features_tensor = temporal_features_tensor.mean(dim=1) 
-            output = self.mlp(temporal_features_tensor)
+            output = self.mlp(temporal_features_and_variants_tensor)
         else: 
             init_shape = temporal_features_and_variants_tensor.shape
             reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)

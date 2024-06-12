@@ -40,10 +40,6 @@ class TcnTrainer:
         self.train_data_path = os.path.join(self.dataset_path, self.args.train_csv)
         self.test_data_path = os.path.join(self.dataset_path, self.args.test_csv)
 
-        self.train_data_path = os.path.join("data", "train_gen1.csv")
-        self.test_data_path = os.path.join("data", "public_X_test.csv")
-        self.variants_path = os.path.join("data", "variants.csv")
-
         self.weights_path = self.args.tcnn_weights
         os.makedirs(self.weights_path, exist_ok=True)
         
@@ -90,17 +86,17 @@ class TcnTrainer:
         # Create DataLoader instances for train, validation, and test sets
         self.train_loader = DataLoader(self.train_dataset, 
                                        batch_size=self.args.batch_size, 
-                                       collate_fn = VolvoDataset.padding_collate_fn,
+                                       #collate_fn = VolvoDataset.padding_collate_fn,
                                        shuffle=True,
                                        num_workers=12) #pin_memory=True #consigliano
         self.val_loader = DataLoader(self.validation_dataset, 
                                      batch_size=self.args.batch_size, 
-                                     collate_fn = VolvoDataset.padding_collate_fn, 
+                                     #collate_fn = VolvoDataset.padding_collate_fn, 
                                      shuffle=True,
                                      num_workers=12)
         self.test_loader =  DataLoader(self.test_dataset, 
-                                       batch_size=self.args.batch_size,
-                                       collate_fn = VolvoDataset.padding_collate_fn)
+                                       batch_size=self.args.batch_size)
+                                       #collate_fn = VolvoDataset.padding_collate_fn)
         
         # Define criterion
         print('Computing class weights...', end='')
@@ -177,7 +173,7 @@ class TcnTrainer:
         running_loss = 0
         i = 0
 
-        for timeseries, variants, labels, mask in pbar:
+        for timeseries, variants, labels in pbar:
             pbar.set_description(f"Running loss: {running_loss/(i+1e-5) :.4}")
             
             timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
@@ -199,8 +195,8 @@ class TcnTrainer:
 
                 
 
-            running_loss += loss.item() * mask.sum()
-            i += mask.sum()
+            running_loss += loss.item()
+            i += 1
 
         return running_loss / (i+1e-5)
 
@@ -214,7 +210,7 @@ class TcnTrainer:
             i = 0
             stats = StatsComputer()
 
-            for timeseries, variants, labels, mask in pbar:
+            for timeseries, variants, labels in pbar:
                 pbar.set_description(f"Running loss: {running_loss/(i+1e-5) :.4}")
                 
                 timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
@@ -229,23 +225,21 @@ class TcnTrainer:
                 loss = self.criterion(outputs, labels)
                 
                 # outputs = outputs[-1]
-                masked_outputs, masked_labels = self.criterion.get_masked_reshaped(outputs, labels, mask)        
-                acc = torch.sum(torch.argmax(masked_labels, dim = 1) == torch.argmax(masked_outputs, dim = 1))
+                acc = torch.sum(torch.argmax(labels, dim = 1) == torch.argmax(outputs, dim = 1))
                 
-                running_loss += loss.item() * mask.sum()
                 running_acc += acc 
 
-                for n in range(len(outputs)): #for every timeseries
-                    ts_outputs = outputs[n]
-                    ts_labels = labels[n]
-                    ts_mask = mask[n]
+                # for n in range(len(outputs)): #for every timeseries
+                #     ts_outputs = outputs[n]
+                #     ts_labels = labels[n]
+                #     print(ts_outputs)
+                #     print(ts_labels)
 
-                    ts_masked_outputs = ts_outputs[ts_mask.type(torch.bool)]
-                    ts_masked_labels = ts_labels[ts_mask.type(torch.bool)]
-                    stats.append(outputs=torch.argmax(ts_masked_outputs, dim = 1).cpu().tolist(), 
-                                labels=torch.argmax(ts_masked_labels, dim = 1).cpu().tolist())
 
-                i += mask.sum()
+                stats.append(outputs=torch.argmax(outputs, dim=-1).cpu().tolist(), 
+                            labels=torch.argmax(labels, dim=-1).cpu().tolist())
+
+                i += 1
 
             validation_loss = running_loss / i
             validation_accuracy = running_acc / i

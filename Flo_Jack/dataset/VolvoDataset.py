@@ -168,8 +168,10 @@ class VolvoDatasetPart1(Dataset):
         # time_series = time_series + self.getPositionEncoding(len(time_series), len(time_series[0]))
         time_series = np.hstack([time_series, self.getPositionEncoding(len(time_series), 50)])
 
+        label = [1,0] if label == 0 else [0,1]
+
         #time_series = np.hstack([time_series, ts['Timesteps'].to_numpy().reshape(-1,1)]) DA CAPIRE SE HA SENSO MANTENERLO 
-        return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), label
+        return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(label)
     
     def getPositionEncoding(self, seq_len, d, n=1000):
         P = np.zeros((seq_len, d))
@@ -504,22 +506,19 @@ class VolvoDataset(Dataset):
         data, variants, labels = zip(*batch)
         # get shapes
         n_features = data[0].shape[1]
-        n_labels = labels[0].shape[1]
         # compute max len
         max_len = max([d.shape[0] for d in data])
         # allign data with respect to max sequence len
         data_alligned = torch.zeros((len(batch), max_len, n_features))
-        labels_allinged = torch.zeros((len(batch), max_len, n_labels))
         # 0 where we , FLO is happier this way
         mask = torch.zeros((len(batch), max_len))
         # fill with meaningfull data
         for i, d in enumerate(data):
             data_alligned[i, :d.shape[0], :] = d
-            labels_allinged[i, :labels[i].shape[0], :] = labels[i]
             # set 1 where meaningfull values
             mask[i,:d.shape[0]] = 1
 
         # trust me bro
-        variants = torch.stack(variants).unsqueeze(1).repeat([1, max_len, 1])
+        variants = torch.stack(variants).unsqueeze(1)
 
-        return data_alligned, variants, labels_allinged, mask
+        return data_alligned, variants, mask
