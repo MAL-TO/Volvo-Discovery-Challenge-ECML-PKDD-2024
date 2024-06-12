@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 
+from torch.nn import BCELoss
+
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import train_test_split
 import pandas as pd
@@ -17,8 +19,8 @@ import tqdm
 import argparse
 import json
 
-from models.tcn import MS_TCN
-from dataset.VolvoDataset import VolvoDataset
+from models.tcn import SS_TCN, MS_TCN
+from dataset.VolvoDataset import VolvoDataset, VolvoDatasetPart1, VolvoDatasetPart2
 from utils.ContinuityCrossEntropyLoss import ContinuityCrossEntropyLoss
 from utils.StatsComputer import StatsComputer
 
@@ -37,18 +39,23 @@ class TcnTrainer:
         self.variants_path = os.path.join(self.dataset_path, self.args.variants_csv)
         self.train_data_path = os.path.join(self.dataset_path, self.args.train_csv)
         self.test_data_path = os.path.join(self.dataset_path, self.args.test_csv)
+
+        self.train_data_path = os.path.join("data", "train_gen1.csv")
+        self.test_data_path = os.path.join("data", "public_X_test.csv")
+        self.variants_path = os.path.join("data", "variants.csv")
+
         self.weights_path = self.args.tcnn_weights
         os.makedirs(self.weights_path, exist_ok=True)
         
         ### Get dataset and model type
 
-        self.train_dataset = VolvoDataset(data_path=self.train_data_path, variants_path=self.variants_path)
+        self.train_dataset = VolvoDatasetPart1(data_path=self.train_data_path, variants_path=self.variants_path)
         self.processor = self.train_dataset.get_processor()
         self.label_encoder = self.processor.risk_encoder
 
         self.train_dataset, self.validation_dataset = self.train_dataset.split_train_validation()
     
-        self.test_dataset = VolvoDataset(data_path=self.test_data_path, variants_path=self.variants_path, test=True)
+        self.test_dataset = VolvoDatasetPart1(data_path=self.test_data_path, variants_path=self.variants_path, test=True)
         self.test_dataset.set_processor(self.processor) 
      
         
@@ -58,9 +65,10 @@ class TcnTrainer:
         #check if preprocess is giving some problems
         assert self.train_dataset.get_n_features() == self.test_dataset.get_n_features()
         
-        self.model = MS_TCN(num_stages=0, 
-                            num_input_channels=n_features, 
-                            num_classes=self.num_classes)
+        self.model = SS_TCN(num_input_channels=n_features, 
+                            num_classes=self.num_classes, 
+                            is_phase_1=True
+                            )
 
         ### Get device
         self.device = torch.device(
@@ -96,16 +104,14 @@ class TcnTrainer:
         
         # Define criterion
         print('Computing class weights...', end='')
-        y = self.label_encoder.transform( self.train_dataset.volvo_df[["risk_level"]].values )
-        y = np.argmax(y, axis=1).flatten()
-        y = np.array(y)[0]
+        # y = self.label_encoder.transform( self.train_dataset.volvo_df[["risk_level"]].values )
+        # y = np.argmax(y, axis=1).flatten()
+        # y = np.array(y)[0]
 
-        weights = compute_class_weight(class_weight="balanced", classes=np.unique(y), y=y)
-        weights = weights 
-        self.criterion = ContinuityCrossEntropyLoss(
-            weights=torch.Tensor(weights).to(self.device),
-            num_classes=self.num_classes
-            )
+        # weights = compute_class_weight(class_weight="balanced", classes=np.unique(y), y=y)
+        # weights = weights 
+        weights = self.train_dataset.get_weights()
+        self.criterion = BCELoss(weight=torch.Tensor(weights).to(self.device))
         print('done')
         print('Class weights = ', weights)
         # self.criterion = ContinuityCrossEntropyLoss(weights=torch.Tensor([1,1,1]).to(self.device))
@@ -180,12 +186,14 @@ class TcnTrainer:
 
             self.optimizer.zero_grad()
             
-            loss = 0
-            for o in outputs:
-                loss += self.criterion(o, labels, mask)
-                if torch.isnan(loss).any():
-                    print(torch.isnan(o).any())
-                    print(torch.isnan(labels).any())
+            loss = self.criterion(outputs, labels)
+
+            # loss = 0
+            # for o in outputs:
+            #     loss += self.criterion(o, labels, mask)
+            #     if torch.isnan(loss).any():
+            #         print(torch.isnan(o).any())
+            #         print(torch.isnan(labels).any())
             loss.backward()
             self.optimizer.step()
 
@@ -214,11 +222,13 @@ class TcnTrainer:
                 outputs = self.model(timeseries, variants)
                 
 
-                loss = 0
-                for o in outputs:
-                    loss += self.criterion(o, labels, mask)
+                # loss = 0
+                # for o in outputs:
+                #     loss += self.criterion(o, labels, mask)
+
+                loss = self.criterion(outputs, labels)
                 
-                outputs = outputs[-1]
+                # outputs = outputs[-1]
                 masked_outputs, masked_labels = self.criterion.get_masked_reshaped(outputs, labels, mask)        
                 acc = torch.sum(torch.argmax(masked_labels, dim = 1) == torch.argmax(masked_outputs, dim = 1))
                 

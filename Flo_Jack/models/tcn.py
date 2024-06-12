@@ -57,12 +57,13 @@ class AttentionHead(nn.Module):
 
 
 class SS_TCN(nn.Module):
-    def __init__(self, num_input_channels, apply_feature_extractor=True, num_classes=3, hidden_features=64, tcn_config=None):
+    def __init__(self, num_input_channels, is_phase_1, apply_feature_extractor=True, num_classes=3, hidden_features=64, tcn_config=None):
         super(SS_TCN, self).__init__()
         
         self.num_input_channels = num_input_channels
         self.num_classes = num_classes
         self.apply_feature_extractor = apply_feature_extractor
+        self.is_phase_1 = is_phase_1
 
         if tcn_config == None:
             tcn_config = [
@@ -127,7 +128,7 @@ class SS_TCN(nn.Module):
 
             nn.Linear(min(int(self.input_dim_mlp//8), 128), num_classes)
         )
-
+    
     def __build_tcn(self, config):
         tcn_layers = nn.ModuleList([])
         for i, layer in enumerate(config):
@@ -203,22 +204,23 @@ class SS_TCN(nn.Module):
         # fully connected che output 0/1 (PARTE 1) SROTOLATO 
         # AVERAGE POOLING GLOBAL PER ESSERE ANCHE INSENSIBILE ALLA LUNGHEZZA DELLA SEQUENZA
         # (BATCH, TEMP_FEATURES)
+
+        # global pooling over each time series 
+        # (BATCH, TEMP_FEATURES)
+        if self.is_phase_1:
+            temporal_features_tensor = temporal_features_tensor.mean(dim=1) 
+            output = self.mlp(temporal_features_tensor)
+        else: 
+            init_shape = temporal_features_and_variants_tensor.shape
+            reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
+            reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
+            output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
+
         # WEIGHTED BCE LOSS
-
-
-        # QUI CLASSIFICO PUNTO PER PUNTO (PARTE 2)
-        # Version 1, more better assai, va testato
-        init_shape = temporal_features_and_variants_tensor.shape
-        reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
-        reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
-        output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
 
         # BCE PER DIRE QUALE E' GIUSTO E SOMMA SU 1 PER FORZARE LA PRESENZA DI UN SOLO 1 
         # (0,0,0,0,1,0,0,0,0,0)
         # (0,0,0,0,0,1,0,0,0,0) GT
-
-
-
         return output
 
     def print_devices(self):

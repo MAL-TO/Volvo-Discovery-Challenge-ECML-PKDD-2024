@@ -32,18 +32,21 @@ class VolvoDatasetPart1(Dataset):
     def set_randomize(self, randomize):
         self.randomize_length = randomize
 
+    def get_weights(self):
+        return np.unique(self.y_stratify, return_counts=True)[1]/len(self.y_stratify)
+
     def split_train_validation(self, train_ratio=0.8):
         all_indexes = list(range(len(self.df_list)))
-        y_stratify = []
+        self.y_stratify = []
         for i, group_df in enumerate(self.df_list):
             if len(group_df['risk_level'].value_counts()) > 1:
-                y_stratify.append(1)
+                self.y_stratify.append(1)
                 # remove all the low risk_level
                 self.df_list[i] = group_df[group_df['risk_level'] != 'Low']
             else:
-                y_stratify.append(0)
+                self.y_stratify.append(0)
 
-        X_train, X_test, _, _ = train_test_split(all_indexes, all_indexes, train_size=train_ratio, stratify=y_stratify)
+        X_train, X_test, _, _ = train_test_split(all_indexes, all_indexes, train_size=train_ratio, stratify=self.y_stratify)
         validation_dataset = deepcopy(self)
 
         self.keep_indexes(X_train)
@@ -98,10 +101,7 @@ class VolvoDatasetPart1(Dataset):
         return features.shape[-1]
     
     def get_n_classes(self):
-        assert self.volvo_df is not None
-        features, variant, labels = self[0]
-        return labels.shape[-1]
-        
+        return np.unique(self.y_stratify).shape[0]
         
     def get_len_variants(self):
         assert self.volvo_df is not None
