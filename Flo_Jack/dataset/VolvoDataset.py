@@ -25,8 +25,7 @@ class VolvoDataset(Dataset):
         self.variants = pd.read_csv(self.variants_path)
 
         # if not self.test:
-            # self.volvo_df = self.volvo_df.loc[self.volvo_df['risk_level']!="Low"]
-            # self.volvo_df['risk_level'] = self.volvo_df['risk_level'].replace("Medium", "High")        #     print(len)
+            # self.volvo_df = self.volvo_df.loc[self.volvo_df['risk_level']!="Low"] DROPPA TUTTO CIO' CHE E' LOW 
   
         self.randomize_length = True
 
@@ -49,6 +48,9 @@ class VolvoDataset(Dataset):
         self.keep_indexes(X_train)
         validation_dataset.keep_indexes(X_test)
 
+        # PARTE 1 + 2 
+        # prende ogni time series e prende una window che salta di param every, prima di fare questo droppa tutte le low se la time series = 1, altrimenti tieni tutte le low 
+        # check se ci sono solo medium o solo high (quindi no salto)
         # self.df_list = self.processor.split_in_len(
         #     self.df_list, 10, every=4
         # )
@@ -76,9 +78,13 @@ class VolvoDataset(Dataset):
         self.volvo_df = self.processor.preprocess(self.volvo_df)
         self.processor.fit(self.volvo_df)        
         self.df_list = self.processor.group_by_chassis(self.volvo_df, skip_if_less_than=10, split_in_len=10)
-    
+
+        # PARTE 1 
+        # dopo che hai fatto il group by chassis, dagli una label per dire se è sempre buono oppure no per poi trainare il classificatore binario 
 
         return self.processor
+    
+    # ESPERIMENTO 1: classificatore che divide buono da cattivo, se ho cattivo prima metà medium seconda high, se buona tutto low 
 
     def set_processor(self, processor):
         self.processor = processor
@@ -125,6 +131,8 @@ class VolvoDataset(Dataset):
         # point_wise labels
         if not self.test:
             #train data with labels 
+            # SE IN FASE 1: UNICA LABEL 0 SE TUTTO LOW, 1 SE TUTTO MEDIUM/HIGH 
+            # IN FASE 2 AVRO' SOLO MEDIUM E HIGH E VOGLIO 1 DOVE AVVIENE IL SALTO E 0 ALTRIMENTI  
             timestep_labels = ts["risk_level"]
             labels = self.processor.risk_encoder.transform(timestep_labels.values.reshape(-1, 1)).todense()
             if np.isnan(labels).any():
@@ -135,24 +143,25 @@ class VolvoDataset(Dataset):
             labels = np.empty((len(time_series),3))
             labels.fill(np.nan)
 
-        chassis_vector = self.variants[self.variants['ChassisId_encoded'] == chassis_id].drop(['ChassisId_encoded'], axis=1).values[0]
+        chassis_vector = self.variants[self.variants['ChassisId_encoded'] == chassis_id].drop(['ChassisId_encoded'], axis=1).values[0] # keep the 'static' features
 
+        # questo prende le random len nelle time series, probabilmente da togliere dopo che nella seconda fase io tengo solo medium e high e ricavo da lì le time series in modo sistematico 
         random_start = 0
         random_end = len(time_series)
-        if  not self.test:
+        # if  not self.test:
             
-            if self.randomize_length and len(labels) > 5:
-                random_len = np.random.randint(5, 15)#len(time_series))
-                if self.val: random_len = 10
+        #     if self.randomize_length and len(labels) > 5:
+        #         random_len = np.random.randint(5, 15)#len(time_series))
+        #         if self.val: random_len = 10
 
-                remainder = len(time_series) - random_len
-                random_start = np.random.randint(0, remainder) if remainder > 0 else 0
-                random_end = random_start + random_len
+        #         remainder = len(time_series) - random_len
+        #         random_start = np.random.randint(0, remainder) if remainder > 0 else 0
+        #         random_end = random_start + random_len
             
-            if not self.val:
-                std = np.std(time_series, axis=0)
-                noise = np.random.normal(0, 0.2*std, size=time_series.shape)
-                time_series += noise
+        #     if not self.val:
+        #         std = np.std(time_series, axis=0)
+        #         noise = np.random.normal(0, 0.2*std, size=time_series.shape)
+        #         time_series += noise
 
         # labels_binary = labels.copy()
         # labels_binary[:, 1] = labels_binary[:, 1] + labels_binary[:, 2]
@@ -162,7 +171,7 @@ class VolvoDataset(Dataset):
 
         # time_series = time_series + self.getPositionEncoding(len(time_series), len(time_series[0]))
         time_series = np.hstack([time_series, self.getPositionEncoding(len(time_series), 50)])
-        time_series = np.hstack([time_series, ts['Timesteps'].to_numpy().reshape(-1,1)])
+        #time_series = np.hstack([time_series, ts['Timesteps'].to_numpy().reshape(-1,1)]) DA CAPIRE SE HA SENSO MANTENERLO 
         return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(labels)[random_start: random_end]
     
     def getPositionEncoding(self, seq_len, d, n=1000):

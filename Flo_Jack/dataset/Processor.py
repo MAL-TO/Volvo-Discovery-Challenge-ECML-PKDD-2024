@@ -71,7 +71,7 @@ class Processor:
         diffs.columns = [x + "_diff" for x in df_numerical_features.columns]
 
         wavelet_df = wavelet_spectrogram(df_numerical_features, 3, wavelet="coif1")
-        # wavelet_db8_df = wavelet_spectrogram(df_numerical_features, 3, wavelet="db4")
+        # wavelet_db8_df = wavelet_spectrogram(df_numerical_features, 3, wavelet="db4") va leggermente meglio rispetto a coif1 
         # stft_df = stft_spectogram(df_numerical_features, window=5)
 
         enhanced_df = pd.concat([

@@ -184,11 +184,6 @@ class SS_TCN(nn.Module):
         temporal_features_tensor = temporal_features_tensor *  torch.softmax( self.attention_layer(temporal_features_tensor), dim = -1)
 
         # attention
-        # attentions = []
-        # for attention_head in self.attention_heads:
-        #     attention_temporal_features_tensor = attention_head(ts_features)
-        #     attentions.append(attention_temporal_features_tensor)
-        # attention_features_tensor = torch.cat(attentions, dim=-1)
         attention_features_tensor = self.attention_heads(ts_features)
 
         # Cross attention between TCN and Transformer
@@ -203,11 +198,26 @@ class SS_TCN(nn.Module):
         # temporal_features_and_variants_tensor = (BATCH, TIMESTAMP, TEMP_FEATURES)
         temporal_features_and_variants_tensor = torch.cat([temporal_features_tensor, static_info], dim=-1)
 
+
+        # PER PARTE 1 CLASSIFICAZIONE FINALE 
+        # fully connected che output 0/1 (PARTE 1) SROTOLATO 
+        # AVERAGE POOLING GLOBAL PER ESSERE ANCHE INSENSIBILE ALLA LUNGHEZZA DELLA SEQUENZA
+        # (BATCH, TEMP_FEATURES)
+        # WEIGHTED BCE LOSS
+
+
+        # QUI CLASSIFICO PUNTO PER PUNTO (PARTE 2)
         # Version 1, more better assai, va testato
         init_shape = temporal_features_and_variants_tensor.shape
         reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
         reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
         output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
+
+        # BCE PER DIRE QUALE E' GIUSTO E SOMMA SU 1 PER FORZARE LA PRESENZA DI UN SOLO 1 
+        # (0,0,0,0,1,0,0,0,0,0)
+        # (0,0,0,0,0,1,0,0,0,0) GT
+
+
 
         return output
 
