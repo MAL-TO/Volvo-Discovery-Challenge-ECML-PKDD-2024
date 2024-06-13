@@ -68,7 +68,7 @@ class StatsComputer:
         string = ''
         string += str(classification_report(flatten_all_labels, flatten_all_outputs)) + '\n'
         string += f"Average discontinuity = {self.average_discontinuity():.4}" + '\n'
-        string += f"More than max = {self.more_than_max()}" + "\n"
+        #string += f"More than max = {self.more_than_max()}" + "\n"
         string += f"F1 score = {self.macro_avg_f1():.4}" + '\n'
         
         return string

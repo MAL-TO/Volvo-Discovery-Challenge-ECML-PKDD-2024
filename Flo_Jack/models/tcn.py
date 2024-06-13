@@ -211,13 +211,14 @@ class SS_TCN(nn.Module):
         # (BATCH, TEMP_FEATURES)
         if self.is_phase_1:
             output = self.mlp(temporal_features_and_variants_tensor)
+            output = torch.nn.functional.softmax(output, dim=-1)
         else: 
             # init_shape = temporal_features_and_variants_tensor.shape
             # reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
             # reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
             # output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
             output = self.mlp(temporal_features_and_variants_tensor)
-
+            output = torch.sigmoid(output)
         # WEIGHTED BCE LOSS
 
         # BCE PER DIRE QUALE E' GIUSTO E SOMMA SU 1 PER FORZARE LA PRESENZA DI UN SOLO 1 

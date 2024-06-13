@@ -95,7 +95,8 @@ class TcnTrainer:
                                      shuffle=True,
                                      num_workers=12)
         self.test_loader =  DataLoader(self.test_dataset, 
-                                       batch_size=self.args.batch_size)
+                                       batch_size=self.args.batch_size,
+                                       shuffle=False)
                                        #collate_fn = VolvoDataset.padding_collate_fn)
         
         # Define criterion
@@ -227,23 +228,23 @@ class TcnTrainer:
             print(f"Epoch [{epoch+1}/{self.args.num_epochs}], Train Loss: {epoch_loss:.4f}")
 
             ### Run validation
-            validation_loss, validation_accuracy, validation_f1 = self.run_validation_phase_2()            
+            validation_loss, validation_accuracy = self.run_validation_phase_2()            
             # print(f"Validation Accuracy: {validation_accuracy:.4f}")
             print(f"Validation Loss: {validation_loss:.4f} vs Best {best_val_loss:.4f}")
-            print(f"Validation F1: {validation_f1} vs Best {best_val_f1}")
+            print(f"Validation F1: {validation_accuracy} vs Best {best_val_f1}")
             
             
             ### Save model if best and early stopping
             # if validation_loss < best_val_loss:
             #     print(f"Saving new model [New best loss {validation_loss} vs Old best loss {best_val_loss}]")
-            if validation_f1 > best_val_f1 or (validation_f1 == best_val_f1 and validation_loss < best_val_loss):
+            if validation_accuracy > best_val_f1 or (validation_accuracy == best_val_f1 and validation_loss < best_val_loss):
                 print(f"Saving new model \n", 
                       f"[New best loss {validation_loss} vs Old best loss {best_val_loss}] \n ",
-                      f"[New best f1   {validation_f1} vs Old best f1   {best_val_f1}]")
+                      f"[New best f1   {validation_accuracy} vs Old best f1   {best_val_f1}]")
                 best_val_loss = validation_loss
-                best_val_f1 = validation_f1
+                best_val_f1 = validation_accuracy
                 waiting_epochs = 0
-                torch.save(self.model.state_dict(), os.path.join(self.weights_path, "TCN_phase2_best.pth"))
+                torch.save(self.model_2.state_dict(), os.path.join(self.weights_path, "TCN_phase2_best.pth"))
             else:
                 waiting_epochs += 1
                 if waiting_epochs >= self.args.patience_epochs:
@@ -354,6 +355,7 @@ class TcnTrainer:
             timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
 
             outputs = self.model_2(timeseries, variants)
+            
             outputs = outputs.squeeze().float()
             labels = labels.float()
 
@@ -392,6 +394,7 @@ class TcnTrainer:
                 timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
 
                 outputs = self.model_2(timeseries, variants)
+                outputs = outputs.squeeze().float()
                 
 
                 # loss = 0
@@ -401,8 +404,12 @@ class TcnTrainer:
                 loss = self.criterion(outputs, labels)
                 
                 
-                # outputs = outputs[-1]
-                acc = torch.sum(torch.argmax(labels, dim = 1) == torch.argmax(outputs, dim = 1))
+                outputs = tensor_to_vector(outputs)
+                labels = tensor_to_vector(labels)
+
+                correct = torch.eq(outputs, labels).sum().item()
+                total = outputs.numel()
+                acc = correct / total
                 
                 running_acc += acc 
 
@@ -421,10 +428,11 @@ class TcnTrainer:
             validation_loss = running_loss / i
             validation_accuracy = running_acc / i
             
-            validation_f1 = stats.macro_avg_f1()
-            print(stats)
+            #validation_f1 = stats.macro_avg_f1()
+            #print(stats)
+            print(f"Validation Accuracy: {validation_accuracy:.4f}")
 
-        return validation_loss, validation_accuracy, validation_f1
+        return validation_loss, validation_accuracy
 
 
     def test(self, save = True):
@@ -433,38 +441,118 @@ class TcnTrainer:
         
         ### Save results
         test_results = self.run_test()            
-        test_results = self.label_encoder.inverse_transform(test_results)
-        
+        #test_results = self.label_encoder.inverse_transform(test_results)
+        test_results = self.one_hot_to_result(test_results)
+
         if save:
             res_df = pd.DataFrame(test_results, columns=["pred"])
             res_df.to_csv("prediction.csv", index=False)
 
+    def one_hot_to_result(self, one_hot):
+        # for each element, if it is 0, add to a list "low", i it is 1, add to a list "medium", if it is 2, add to a list "high"
+        result = []
+
+        for i in range(len(one_hot)):
+            if int(one_hot[i]) == 0:
+                result.append("Low")
+            elif int(one_hot[i]) == 1:
+                result.append("Medium")
+            elif int(one_hot[i]) == 2:
+                result.append("High")
+            else:
+                raise Exception(f"Invalid value in one_hot: {one_hot[i]}")
+        
+        return result
+
+
     def run_test(self):
+        
+        del self.model_2
+        self.model_2 = None
+
+        # clean cuda memory
+        torch.cuda.empty_cache()
+
+        self.model = SS_TCN(num_input_channels=self.train_dataset.get_n_features(),
+                            num_classes=2, 
+                            is_phase_1=True
+                            )
         # Test the model
         self.model.load_state_dict(
             torch.load(
                 os.path.join(self.weights_path, "TCN_best.pth")
             ))
         self.model.eval()
+        self.model.to(self.device)
         
         with torch.no_grad():
             pbar = tqdm.tqdm(self.test_loader)
             all_outputs = []
             
-            for timeseries, variants, labels, mask in pbar:
+            for timeseries, variants, labels in pbar:
                 pbar.set_description(f"Testing: ")
                 
                 timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
 
-                outputs = self.model(timeseries, variants)[0]
+                outputs = self.model(timeseries, variants)
+                outputs = torch.argmax(outputs, dim=-1)
+                all_outputs.extend(outputs.cpu()[:timeseries.size(0)].tolist())
 
-                mask = mask.reshape(-1)                
-                outputs = outputs.reshape(-1, self.num_classes)
-                outputs = outputs[mask.type(torch.bool)]
+        # phase 2
+        del self.model
+        self.model = None
+
+        # clean cuda memory
+        torch.cuda.empty_cache()
+
+        self.model_2 = SS_TCN(num_input_channels=self.train_dataset.get_n_features(), 
+                            num_classes=1, 
+                            is_phase_1=False
+                            )
+        self.model_2.load_state_dict(torch.load(os.path.join(self.weights_path, "TCN_phase2_best.pth")))
+        self.model_2.eval()
+        self.model_2.to(self.device)
+
+        with torch.no_grad():
+            pbar = tqdm.tqdm(self.test_loader)
+            final_result = []
+            
+            for i, value in enumerate(pbar):
+                pbar.set_description(f"Testing: ")
                 
-                all_outputs.extend(outputs.cpu().tolist())
-        
-        return all_outputs
+                timeseries, variants, labels = value
+                timeseries, variants, labels = timeseries.to(self.device), variants.to(self.device), labels.to(self.device)
+
+                for j in range(timeseries.size(0)):
+                    index = i*self.args.batch_size + j
+                    if all_outputs[index] == 0:
+                        # all outputs is "low"
+                        outputs = torch.zeros(10)
+                        final_result.extend(outputs.cpu().tolist())
+                    else:
+                        timeserie = timeseries[j].unsqueeze(0)
+                        variant = variants[j].unsqueeze(0)
+                        outputs = self.model_2(timeserie, variant)
+                        outputs = tensor_to_vector(outputs)
+                        outputs = outputs + 1
+                        for output in outputs.cpu().tolist():
+                            final_result.extend(output)
+
+        print(len(final_result))
+        print(final_result[:100])
+        return final_result
            
             
-     
+def tensor_to_vector(tensor):
+        tensor = tensor * 10
+        tensor = torch.round(tensor)
+
+        # for each number, if it is <1, set it to 1
+        tensor = torch.where(tensor < 1, torch.ones_like(tensor), tensor)
+
+        # for each number, create a tensor with 10 elements, with (1 - number) being 0 and number being 1
+        list = []
+        for n in tensor:
+            list.append(torch.cat([torch.zeros(int(10 - n)), torch.ones(int(n))]))
+
+        return torch.stack(list)
