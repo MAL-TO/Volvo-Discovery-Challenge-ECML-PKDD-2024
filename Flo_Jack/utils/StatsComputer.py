@@ -51,8 +51,7 @@ class StatsComputer:
 
     def macro_avg_f1(self):
         # Get precision, recall, and f1-score for each class
-        precision, recall, f1, true_sum = precision_recall_fscore_support(self.flatten(self.all_labels), self.flatten(self.all_outputs)),
-
+        precision, recall, f1, true_sum = precision_recall_fscore_support(self.flatten(self.all_labels), self.flatten(self.all_outputs))
         print(f1)
         # Calculate macro average F1-score
         macro_avg_f1 = sum(f1) / len(f1)
