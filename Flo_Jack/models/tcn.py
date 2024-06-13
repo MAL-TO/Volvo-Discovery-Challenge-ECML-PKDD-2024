@@ -212,10 +212,11 @@ class SS_TCN(nn.Module):
         if self.is_phase_1:
             output = self.mlp(temporal_features_and_variants_tensor)
         else: 
-            init_shape = temporal_features_and_variants_tensor.shape
-            reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
-            reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
-            output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
+            # init_shape = temporal_features_and_variants_tensor.shape
+            # reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
+            # reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
+            # output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
+            output = self.mlp(temporal_features_and_variants_tensor)
 
         # WEIGHTED BCE LOSS
 

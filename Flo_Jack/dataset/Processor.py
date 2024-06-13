@@ -78,7 +78,7 @@ class Processor:
                                 df_numerical_features.reset_index(drop=True), 
                                 df_categorical_features.reset_index(drop=True),
                                 diffs.reset_index(drop=True),
-                                wavelet_df.reset_index(drop=True),
+                                #wavelet_df.reset_index(drop=True),
                                 # wavelet_db8_df.reset_index(drop=True),
                                 # stft_df.reset_index(drop=True),
                                 ], axis=1)

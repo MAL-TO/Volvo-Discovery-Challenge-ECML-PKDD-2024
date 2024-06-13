@@ -287,14 +287,10 @@ class VolvoDatasetPart2(VolvoDatasetPart1):
         # point_wise labels
         if not self.test:
             #train data with labels 
-            # IN FASE 2 AVRO' SOLO MEDIUM E HIGH E VOGLIO 1 DOVE AVVIENE IL SALTO E 0 ALTRIMENTI  
-            timestep_labels = ts["risk_level"].values
-            print(timestep_labels)
+            # IN FASE 2 AVRO' SOLO MEDIUM E HIGH E VOGLIO 1 DOVE AVVIENE IL SALTO E 0 ALTRIMENTI              
+            # label is high/len(label)
+            label = len(ts[ts["risk_level"] == "High"]) / len(ts)
 
-            # create a vector that has only 0 and 1 where the jump happens
-            label = np.zeros(len(timestep_labels))
-            first_high = np.where(timestep_labels == "High")[0][0]
-            label[first_high] = 1
         elif self.test:
             label = np.zeros(len(time_series))
 
@@ -328,7 +324,7 @@ class VolvoDatasetPart2(VolvoDatasetPart1):
         time_series = np.hstack([time_series, self.getPositionEncoding(len(time_series), 50)])
 
         #time_series = np.hstack([time_series, ts['Timesteps'].to_numpy().reshape(-1,1)]) DA CAPIRE SE HA SENSO MANTENERLO 
-        return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), torch.Tensor(label)
+        return torch.Tensor(time_series)[random_start: random_end], torch.Tensor(chassis_vector), label
 
 class VolvoDataset(Dataset):
     def __init__(self, data_path = "", variants_path="", verbose=True, test=False):
