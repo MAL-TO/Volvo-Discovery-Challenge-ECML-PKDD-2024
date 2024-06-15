@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 
-from torch.nn import BCELoss
+from torch.nn import BCELoss, L1Loss
 
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import train_test_split
@@ -55,13 +55,12 @@ class TcnTrainer:
         self.test_dataset.set_processor(self.processor) 
      
         
-        n_features = self.train_dataset.get_n_features()
         self.num_classes = self.train_dataset.get_n_classes()
         
         #check if preprocess is giving some problems
         assert self.train_dataset.get_n_features() == self.test_dataset.get_n_features()
         
-        self.model = SS_TCN(num_input_channels=n_features, 
+        self.model = SS_TCN(num_input_channels=self.train_dataset.get_n_features(), 
                             num_classes=self.num_classes, 
                             is_phase_1=True
                             )
@@ -116,63 +115,63 @@ class TcnTrainer:
 
     def reset_optimizer(self, lr):
         parameters = self.model.parameters() if self.model is not None else self.model_2.parameters()
-        self.optimizer = optim.Adam(parameters, lr=lr)
+        self.optimizer = optim.NAdam(parameters, lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 
-                                                    gamma=self.args.lr_scheduler_gamma, 
-                                                    step_size=self.args.lr_scheduler_step)
+                                                    gamma=self.args.lr_scheduler_gamma if self.model is not None else self.args.lr_scheduler_gamma_2, 
+                                                    step_size=self.args.lr_scheduler_step if self.model is not None else self.args.lr_scheduler_step_2)
 
     def train(self):
-        print("=== Start training ===")
-        print(f"Batch size: {self.args.batch_size}")
-        # Define loss function and optimizer
-        self.reset_optimizer(self.args.learning_rate)
+        if not self.args.skip_phase_1:
+            print("=== Start training ===")
+            print(f"Batch size: {self.args.batch_size}")
+            # Define loss function and optimizer
+            self.reset_optimizer(self.args.learning_rate)
 
-        waiting_epochs = 0
-        best_val_loss = float('inf')
-        best_val_f1 = 0
-        num_resets = 0
-        for epoch in range(self.args.num_epochs):
-            ### Run epoch
-            print( "="*25, f"EPOCH {epoch}", "="*25)
-            print("Learning rate: ", self.optimizer.param_groups[0]['lr'])
-            epoch_loss = self.run_epoch()
-            self.scheduler.step()
-            print(f"Epoch [{epoch+1}/{self.args.num_epochs}], Train Loss: {epoch_loss:.4f}")
+            waiting_epochs = 0
+            best_val_loss = float('inf')
+            best_val_f1 = 0
+            num_resets = 0
+            for epoch in range(self.args.num_epochs):
+                ### Run epoch
+                print( "="*25, f"EPOCH {epoch}", "="*25)
+                print("Learning rate: ", self.optimizer.param_groups[0]['lr'])
+                epoch_loss = self.run_epoch()
+                self.scheduler.step()
+                print(f"Epoch [{epoch+1}/{self.args.num_epochs}], Train Loss: {epoch_loss:.4f}")
 
-            ### Run validation
-            validation_loss, validation_accuracy, validation_f1 = self.run_validation()            
-            # print(f"Validation Accuracy: {validation_accuracy:.4f}")
-            print(f"Validation Loss: {validation_loss:.4f} vs Best {best_val_loss:.4f}")
-            print(f"Validation F1: {validation_f1} vs Best {best_val_f1}")
-            
-            
-            ### Save model if best and early stopping
-            # if validation_loss < best_val_loss:
-            #     print(f"Saving new model [New best loss {validation_loss} vs Old best loss {best_val_loss}]")
-            if validation_f1 > best_val_f1 or (validation_f1 == best_val_f1 and validation_loss < best_val_loss):
-                print(f"Saving new model \n", 
-                      f"[New best loss {validation_loss} vs Old best loss {best_val_loss}] \n ",
-                      f"[New best f1   {validation_f1} vs Old best f1   {best_val_f1}]")
-                best_val_loss = validation_loss
-                best_val_f1 = validation_f1
-                waiting_epochs = 0
-                torch.save(self.model.state_dict(), os.path.join(self.weights_path, "TCN_best.pth"))
-            else:
-                waiting_epochs += 1
-                if waiting_epochs >= self.args.patience_epochs:
-                    print(f"Early stopping because ran more than {self.args.patience_epochs} without improvement")
-                    break
-                    # waiting_epochs = 0
-                    # num_resets += 1
-                    # lr = (0.8**num_resets) * self.args.learning_rate
-                    # self.reset_optimizer(lr) 
-                    # print("Resetting LR")
+                ### Run validation
+                validation_loss, validation_accuracy, validation_f1 = self.run_validation()            
+                # print(f"Validation Accuracy: {validation_accuracy:.4f}")
+                print(f"Validation Loss: {validation_loss:.4f} vs Best {best_val_loss:.4f}")
+                print(f"Validation F1: {validation_f1} vs Best {best_val_f1}")
+                
+                
+                ### Save model if best and early stopping
+                # if validation_loss < best_val_loss:
+                #     print(f"Saving new model [New best loss {validation_loss} vs Old best loss {best_val_loss}]")
+                if validation_f1 > best_val_f1 or (validation_f1 == best_val_f1 and validation_loss < best_val_loss):
+                    print(f"Saving new model \n", 
+                        f"[New best loss {validation_loss} vs Old best loss {best_val_loss}] \n ",
+                        f"[New best f1   {validation_f1} vs Old best f1   {best_val_f1}]")
+                    best_val_loss = validation_loss
+                    best_val_f1 = validation_f1
+                    waiting_epochs = 0
+                    torch.save(self.model.state_dict(), os.path.join(self.weights_path, "TCN_best.pth"))
+                else:
+                    waiting_epochs += 1
+                    if waiting_epochs >= self.args.patience_epochs:
+                        print(f"Early stopping because ran more than {self.args.patience_epochs} without improvement")
+                        break
+                        # waiting_epochs = 0
+                        # num_resets += 1
+                        # lr = (0.8**num_resets) * self.args.learning_rate
+                        # self.reset_optimizer(lr) 
+                        # print("Resetting LR")
         
         self.init_phase_2()
         self.train_phase_2()
 
     def init_phase_2(self):
-        
         n_input_channels = self.model.num_input_channels
         del self.model
         self.model = None
@@ -191,20 +190,33 @@ class TcnTrainer:
                             is_phase_1=False
                             )
         
+        # load the best weights from phase 1 except for the last layer
+        # state_dict = torch.load(os.path.join(self.weights_path, "TCN_best.pth"))
+        # weights_to_keep = [x for x in state_dict.keys() if "mlp" not in x]
+
+        # new_state_dict = {}
+        # for key in weights_to_keep:
+        #     new_state_dict[key] = state_dict[key]
+
+        # new_state_dict.keys()
+        # self.model_2.load_state_dict(new_state_dict, strict=False)
+
+        
         self.model_2.to(self.device)
         
         self.train_loader = DataLoader(self.train_dataset, 
-                                       batch_size=self.args.batch_size, 
+                                       batch_size=32, 
                                        #collate_fn = VolvoDataset.padding_collate_fn,
                                        shuffle=True,
-                                       num_workers=12) #pin_memory=True #consigliano
+                                       num_workers=12, 
+                                       drop_last=True) #pin_memory=True #consigliano
         self.val_loader = DataLoader(self.validation_dataset, 
                                      batch_size=self.args.batch_size, 
                                      #collate_fn = VolvoDataset.padding_collate_fn, 
                                      shuffle=True,
                                      num_workers=12)
         
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
 
         
         

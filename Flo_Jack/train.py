@@ -18,10 +18,14 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, default=128, help="Size of the batch for training")
 
-    parser.add_argument("--num_epochs", type=int, default=10, help="Number of epochs to train the model")
+    parser.add_argument("--num_epochs", type=int, default=30, help="Number of epochs to train the model")
+    parser.add_argument("--skip_phase_1", type=bool, default=True, help="Skip or not phase 1 of training")
     parser.add_argument("--learning_rate", type=float, default=0.0005, help="Starting learning rate")
-    parser.add_argument("--lr_scheduler_gamma", type=float, default=0.8, help="Muliply the learning rate by the gamma factor every {args.lr_cheduler_step} steps")
-    parser.add_argument("--lr_scheduler_step", type=int, default=1, help="Every how many epochs apply the gamma to the learning rate")
+    parser.add_argument("--weight_decay", type=float, default=0.0001, help="Weight decay for the optimizer")
+    parser.add_argument("--lr_scheduler_gamma", type=float, default=0.8, help="Muliply the learning rate by the gamma factor every {args.lr_cheduler_step} steps in phase 1")
+    parser.add_argument("--lr_scheduler_gamma_2", type=float, default=0.9, help="Muliply the learning rate by the gamma factor every {args.lr_cheduler_step} steps in phase 2")
+    parser.add_argument("--lr_scheduler_step", type=int, default=1, help="Every how many epochs apply the gamma to the learning rate in phase 1")
+    parser.add_argument("--lr_scheduler_step_2", type=int, default=3, help="Every how many epochs apply the gamma to the learning rate in phase 2")
     parser.add_argument("--patience_epochs", type=int, default=7, help="After how many epochs of not improving the validation score stop the training")
 
     parser.add_argument("--disable_cuda", action="store_true", help="Even if cuda is available, dont use it")
