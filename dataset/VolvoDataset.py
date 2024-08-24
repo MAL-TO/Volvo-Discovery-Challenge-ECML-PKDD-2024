@@ -52,9 +52,9 @@ class VolvoDatasetPart1(Dataset):
         self.keep_indexes(X_train)
         validation_dataset.keep_indexes(X_test)
 
-        # PARTE 1 + 2 
-        # prende ogni time series e prende una window che salta di param every, prima di fare questo droppa tutte le low se la time series = 1, altrimenti tieni tutte le low 
-        # check se ci sono solo medium o solo high (quindi no salto)
+        # PART 1 + 2 
+        # takes each time series and takes a window jumping param every, before doing this drop all lows if time series = 1, otherwise keep all lows 
+        # check if there are only medium or only high (so no jump)
         self.df_list = self.processor.split_in_len(
             self.df_list, 10, every=4
         )
@@ -84,11 +84,11 @@ class VolvoDatasetPart1(Dataset):
         self.df_list = self.processor.group_by_chassis(self.volvo_df, skip_if_less_than=10, split_in_len=10)
 
         # PARTE 1 
-        # dopo che hai fatto il group by chassis, dagli una label per dire se è sempre buono oppure no per poi trainare il classificatore binario 
+        # after you have done the group by chassis, give it a label to say whether it is always good or not to then trained the binary classifier 
 
         return self.processor
     
-    # ESPERIMENTO 1: classificatore che divide buono da cattivo, se ho cattivo prima metà medium seconda high, se buona tutto low 
+    # EXPERIMENT 1: classifier dividing good from bad, if I have bad first half medium second high, if good all low 
 
     def set_processor(self, processor):
         self.processor = processor
@@ -132,8 +132,8 @@ class VolvoDatasetPart1(Dataset):
         # point_wise labels
         if not self.test:
             #train data with labels 
-            # SE IN FASE 1: UNICA LABEL 0 SE TUTTO LOW, 1 SE TUTTO MEDIUM/HIGH 
-            # IN FASE 2 AVRO' SOLO MEDIUM E HIGH E VOGLIO 1 DOVE AVVIENE IL SALTO E 0 ALTRIMENTI  
+            # IF IN PHASE 1: SINGLE LABEL 0 IF ALL LOW, 1 IF ALL MEDIUM/HIGH 
+            # IN PHASE 2 I WILL ONLY HAVE MEDIUM AND HIGH AND I WANT 1 WHERE THE JUMP HAPPENS AND 0 OTHERWISE  
             timestep_labels = ts["risk_level"].values
             label = 0 if (np.unique(timestep_labels) == "Low").all() else 1
         elif self.test:
@@ -141,7 +141,7 @@ class VolvoDatasetPart1(Dataset):
 
         chassis_vector = self.variants[self.variants['ChassisId_encoded'] == chassis_id].drop(['ChassisId_encoded'], axis=1).values[0] # keep the 'static' features
 
-        # questo prende le random len nelle time series, probabilmente da togliere dopo che nella seconda fase io tengo solo medium e high e ricavo da lì le time series in modo sistematico 
+        # this takes the random len in the time series, probably to be removed after that in the second phase I keep only medium and high and derive from there the time series systematically
         random_start = 0
         random_end = len(time_series)
         # if  not self.test:
@@ -228,9 +228,9 @@ class VolvoDatasetPart2(VolvoDatasetPart1):
         self.keep_indexes(X_train)
         validation_dataset.keep_indexes(X_test)
 
-        # PARTE 2 
-        # prende ogni time series e prende una window che salta di param every, prima di fare questo droppa tutte le low se la time series = 1, altrimenti tieni tutte le low 
-        # check se ci sono solo medium o solo high (quindi no salto)
+        # PART 2 
+        # takes each time series and takes a window jumping param every, before doing this drop all lows if time series = 1, otherwise keep all lows 
+        # check if there are only medium or only high (so no jump)
         self.df_list = self.processor.split_in_len(
             self.df_list, 10, every=4
         )

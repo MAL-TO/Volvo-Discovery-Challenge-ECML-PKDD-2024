@@ -201,10 +201,8 @@ class SS_TCN(nn.Module):
         temporal_features_tensor = temporal_features_tensor.mean(dim=1)
         temporal_features_and_variants_tensor = torch.cat([temporal_features_tensor, static_info], dim=-1)
 
-
-        # PER PARTE 1 CLASSIFICAZIONE FINALE 
-        # fully connected che output 0/1 (PARTE 1) SROTOLATO 
-        # AVERAGE POOLING GLOBAL PER ESSERE ANCHE INSENSIBILE ALLA LUNGHEZZA DELLA SEQUENZA
+        # fully connected with healthy/unlhealthy output 
+        # AVERAGE POOLING GLOBAL TO BE SURE THAT THE OUTPUT IS INDEPENDENT FROM THE TIME SERIES LENGTH
         # (BATCH, TEMP_FEATURES)
 
         # global pooling over each time series 
@@ -213,53 +211,12 @@ class SS_TCN(nn.Module):
             output = self.mlp(temporal_features_and_variants_tensor)
             output = torch.nn.functional.softmax(output, dim=-1)
         else: 
-            # init_shape = temporal_features_and_variants_tensor.shape
-            # reshaped_temporal_features = temporal_features_and_variants_tensor.reshape(-1, init_shape[-1]) # (BATCH x TIMESTAMP, TEMP_FEATURES)
-            # reshaped_classes = self.mlp(reshaped_temporal_features) # (BATCH x TIMESTAMP, CLASS_PROBS)
-            # output = reshaped_classes.reshape((*init_shape[:-1], self.num_classes)) # (BATCH, TIMESTAMP, CLASS_PROBS)Ye
             output = self.mlp(temporal_features_and_variants_tensor)
             output = torch.sigmoid(output)
-        # WEIGHTED BCE LOSS
 
-        # BCE PER DIRE QUALE E' GIUSTO E SOMMA SU 1 PER FORZARE LA PRESENZA DI UN SOLO 1 
-        # (0,0,0,0,1,0,0,0,0,0)
-        # (0,0,0,0,0,1,0,0,0,0) GT
         return output
 
     def print_devices(self):
         print(list(self.image_feature_extractor.parameters())[0].device)
         print(list(self.tcn.parameters())[0].device)
         print(list(self.regressor.parameters())[0].device)
-
-
-class MS_TCN(nn.Module):
-    def __init__(self, num_stages, num_input_channels, num_classes):
-        super(MS_TCN, self).__init__()
-
-        self.first_stage = SS_TCN(num_input_channels, 
-                                  apply_feature_extractor=True, 
-                                  num_classes=num_classes,
-                                  hidden_features=2048)
-        
-        # per refinement <3
-        self.next_stages = nn.ModuleList([SS_TCN(
-                                                num_input_channels=num_classes, 
-                                                apply_feature_extractor=False, 
-                                                num_classes=num_classes
-                                            ) for _ in range(num_stages)
-                                          ])
-    
-    def forward(self, x, static):
-        outputs = []
-
-        # first prediction
-        out = self.first_stage(x, static)
-        outputs.append(out)
-        
-        # refinement
-        for stage in self.next_stages:
-            out = F.softmax(out, dim=-1)
-            out = stage(out)
-            outputs.append(out)
-
-        return outputs

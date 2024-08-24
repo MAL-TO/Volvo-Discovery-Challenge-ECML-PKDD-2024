@@ -19,7 +19,7 @@ import tqdm
 import argparse
 import json
 
-from models.tcn import SS_TCN, MS_TCN
+from models.tcn import SS_TCN
 from dataset.VolvoDataset import VolvoDataset, VolvoDatasetPart1, VolvoDatasetPart2
 from utils.ContinuityCrossEntropyLoss import ContinuityCrossEntropyLoss
 from utils.StatsComputer import StatsComputer
